@@ -31,6 +31,9 @@ for line in coordsLines:
 #
 # Example with two coordinates: [[.5, .5, xEntry, yEntry],[.5, 1.0, xEntry, yEntry]]
 #
+# I think I want to break this up some so I can deal with values in the coordinate list
+# separately.
+#
 coordList = []
 
 #coordList.append([])
