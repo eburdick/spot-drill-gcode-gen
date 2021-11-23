@@ -18,13 +18,13 @@
 #    Absolute/relative menu. Default Absolute
 #    Exit Button - exits the program. Asks user to save
 #
-#      Depth        Plunge       [New]
+#      Depth        Plunge       [Add Point]
 #      __________  __________    [Open]
 #          X          Y          [Save]
 #      __________  __________    v Inch
 #      __________  __________    v Absolute
 #      __________  __________    [Gen Gcode]
-#                                [Exit]
+#                                        [Exit]
 
 
 #
@@ -56,13 +56,60 @@ gcodeFileName = "test_gcode.nc"
 # fields (split()) and remove the end of line (strip())
 coordsFile = open(coordsFileName, "r")
 coordsLines = coordsFile.readlines()
+
 for line in coordsLines:
     coords = line.strip().split(' ')
     # just print the coords value for now.
     print(coords)
-#    print(line.strip())  # line.strip() removes end of line characters
-
 #
+# Data structures
+#
+# Coordinate list...
+#
+# Coordinates are stored in a list. Each coordinate pair is stored as a list containing the value,
+# the gui widgets for displaying them, and the string variables needed for communication with the
+# gui widgets.
+#
+# [
+#     [X value, Y value, X entry widget, Y entry widget, X StringVar, Y StringVar]
+#     [...]...
+# ]
+#
+# Coordinate list functions...
+#
+# class CoordPair
+#
+# The main object type used by this application is a coordinate pair, and X and Y value that determines
+# the physical location of a hole in the workpiece. A CoordPair can come from an input file, or be added
+# by the user by clicking the Add button. CoordPairs are kept in a list that the gcode generation code
+# uses, or the Save functionality writes to a file.
+#
+# CoordPair members:
+#
+# X value
+# Y value
+# X Entry widget
+# Y Entry widget
+# member functions set x, set y (maybe set value, including x and y)
+# member functions get x, get y (maybe get value, including x and y)
+#
+# creating a CoordPair instance called x looks like x.CoordPair, which will call the __init__() function in
+# the class definition
+#
+# Reading CoordPairs from a file:
+#    Open the file
+#    create a lines list from the file
+#    parse each into an x and y
+#    create a CoordPair from these values
+#       set x value and y value
+#       create X Entry widget and Y Entry widget
+#       populate X Entry widget and Y Entry widget with X and Y values
+#       place X Entry widget and Y Entry widget in the GUI grid
+#
+# Creating CoordPairs with the Gui:
+#    The Add button creates a new CoordPair with null values in X and Y.
+#    User adds values in Entry widgets
+
 # The main data structure for the program is a list of lists, structured like this...
 #
 # [[x, y, entry widget for x, entry widget for y]...]
@@ -78,6 +125,8 @@ def NewPressed():
     print("New button")
 def SavePressed():
     print("Save button")
+def SaveAsPressed():
+    print("Save As button")
 def GenGcodePressed():
     print("Gen Gcode button")
 def ExitPressed():
@@ -88,6 +137,13 @@ def AbsRelSelectVarChanged(*args):
 def InchMmSelectVarChanged(*args):
     print("Inch/mm menu changed")
     print(inchMmSelectVar.get())
+def AddButtonPressed():
+    print("Add Point button")
+def donothing():
+    filewin = Toplevel(window)
+    button = Button(filewin, text="Do nothing button")
+    button.pack()
+    print("donothing")
 
 coordList = []
 
@@ -104,29 +160,63 @@ s = ttk.Style()
 # create and size the main window
 #
 window.title('Spot Drilling Tool')
-#window.geometry("400x200")
+
+menubar = Menu(window)
+filemenu = Menu(menubar, tearoff=0)
+filemenu.add_command(label="New", command=NewPressed)
+filemenu.add_command(label="Open", command=OpenPressed)
+filemenu.add_command(label="Save", command=SavePressed)
+filemenu.add_command(label="Save as...", command=SaveAsPressed)
+filemenu.add_command(label="Write GCode", command=GenGcodePressed)
+filemenu.add_command(label="Exit", command=ExitPressed)
+menubar.add_cascade(label="File", menu=filemenu)
+
+#
+# Create the GUI widgets
+#
+depthText = StringVar()
+depthLabel = Label(window, textvariable=depthText, font=('Helvetica', 12))
+depthText.set('Depth')
+
+plungeText = StringVar()
+plungeLabel = Label(window, textvariable=plungeText, font=('Helvetica', 12))
+plungeText.set('Plunge Rate')
+
+depthEntry = Entry(window)
+plungeEntry = Entry(window)
+
+addButton = Button(window, text = "Add Point", command = AddButtonPressed)
+
 xText = StringVar()
-xLabel = Label(window, textvariable=xText, relief=SUNKEN).grid(row=0, column=0)
+xLabel = Label(window, textvariable=xText, font=('Helvetica', 12))
 xText.set('    X    ')
+
 yText = StringVar()
-yLabel = Label(window, textvariable=yText, relief=SUNKEN).grid(row=0, column=1)
+yLabel = Label(window, textvariable=yText, font=('Helvetica, 12'))
 yText.set('    Y    ')
-Button(window, text='New', command=NewPressed).grid(row=1,column=2,sticky=W, pady=4)
-Button(window, text='Open', command=OpenPressed).grid(row=2,column=2,sticky=W, pady=4)
-Button(window, text='Save', command=SavePressed).grid(row=3,column=2,sticky=W, pady=4)
 
 inchMmSelectVar = StringVar(window)
 inchMmSelectVar.set("Unit: Inches")
-inchMmSelectMenu = OptionMenu(window, inchMmSelectVar, 'Unit: Inches', 'Unit: Millimeters').grid(row=4,column=2)
+inchMmSelectMenu = OptionMenu(window, inchMmSelectVar, 'Unit: Inches', 'Unit: Millimeters')
 inchMmSelectVar.trace('w', InchMmSelectVarChanged)
 
 absRelSelectVar = StringVar(window)
 absRelSelectVar.set("Mode: Absolute")
-absRelSelectmenu = OptionMenu(window, absRelSelectVar, 'Mode: Absolute', 'Mode: Relative').grid(row=5,column=2)
+absRelSelectMenu = OptionMenu(window, absRelSelectVar, 'Mode: Absolute', 'Mode: Relative')
 absRelSelectVar.trace('w', AbsRelSelectVarChanged)
 
-Button(window, text='Gen Gcode', command=GenGcodePressed).grid(row=6,column=2,sticky=W, pady=4)
-Button(window, text='Exit', command=ExitPressed).grid(row=7,column=2,sticky=W, pady=4)
+#
+# Place the widgets in the window
+#
+depthLabel.grid(      row=0, column=0, padx=4, pady=0)
+plungeLabel.grid(     row=0, column=1, padx=4, pady=4)
+depthEntry.grid(      row=1, column=0, padx=4, pady=0)
+plungeEntry.grid(     row=1, column=1, padx=4, pady=0)
+xLabel.grid(          row=2, column=0, padx=4, pady=0)
+yLabel.grid(          row=2, column=1, padx=4, pady=0)
+addButton.grid(       row=0, column=2, padx=4, pady=4)
+inchMmSelectMenu.grid(row=1, column=2, padx=4, pady=4, sticky=W)
+absRelSelectMenu.grid(row=2, column=2, padx=4, pady=4, sticky=W)
 
 # create a list for each coordinate pair consisting of the value of X, the value of Y, and two tk
 # entry widgets. The widgets will be displayed in the GUI window. Each of these coordinate pair lists
@@ -136,7 +226,7 @@ Button(window, text='Exit', command=ExitPressed).grid(row=7,column=2,sticky=W, p
 lineNumber=0
 for line in coordsLines:
     coords = line.strip().split(' ')
-    coordList.append([coords[XVALUE], coords[YVALUE], Entry(window), Entry(window)])
+    coordList.append([coords[XVALUE], coords[YVALUE], Entry(window), Entry(window), StringVar(), StringVar()])
     coordList[lineNumber][XWIDGET].insert(END, coordList[lineNumber][XVALUE])
     coordList[lineNumber][YWIDGET].insert(END, coordList[lineNumber][YVALUE])
     lineNumber += 1
@@ -147,13 +237,12 @@ print(coordList)  # debug temp
 #
 # Place X and Y entry widgets in the window
 #
-i=0
+gridrow=3
 for lineNumber in range(6):
-    coordList[lineNumber][XWIDGET].grid(row=i+1,column=0)
-    coordList[lineNumber][YWIDGET].grid(row=i+1,column=1)
-    i = i + 1
+    coordList[lineNumber][XWIDGET].grid(row=gridrow,column=0, pady=4, padx=4)
+    coordList[lineNumber][YWIDGET].grid(row=gridrow,column=1, pady=4, padx=4)
+    gridrow += 1
 
-#yEntry[0].grid(row=0,column=1)
-#xEntry[1].grid(row=1,column=0)
-#yEntry[1].grid(row=1,column=1)
+# Start the GUI main loop
+window.config(menu=menubar)
 window.mainloop()
