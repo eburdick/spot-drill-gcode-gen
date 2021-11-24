@@ -37,6 +37,9 @@ from tkinter import *                # GUI stuff
 from tkinter import ttk              # more widgets
 from tkinter.scrolledtext import ScrolledText  # not sure why we need to import a module for scrolled text
 from tkinter import filedialog
+
+baseDirectory = 'C:\development\python\PycharmProjects\spot-drill-gcode-gen'
+
 test = float(numexpr.evaluate('.5+1'))
 print(test)
 print(test*2.54)
@@ -48,19 +51,10 @@ XWIDGET = 2;
 YWIDGET = 3;
 
 # temporary code to open working files. This will be replaced by a file selection box later
-coordsFileName = "test_coords.txt"
-gcodeFileName = "test_gcode.nc"
+#coordsFileName = "test_coords.txt"
+#gcodeFileName = "test_gcode.nc"
 
-# open the coordinates file. This is just a pair of numbers on each line, x, then y, separated by a single
-# space. The readLines method creates a list of lines from this file, then we split each line into the two
-# fields (split()) and remove the end of line (strip())
-coordsFile = open(coordsFileName, "r")
-coordsLines = coordsFile.readlines()
 
-for line in coordsLines:
-    coords = line.strip().split(' ')
-    # just print the coords value for now.
-    print(coords)
 #
 # Data structures
 #
@@ -119,130 +113,158 @@ for line in coordsLines:
 # I think I want to break this up some so I can deal with values in the coordinate list
 # separately.
 #
-def OpenPressed():
+
+#
+# program state
+#
+def open_pressed():
+    # Open means read a coordinates file and make the points in that file the current points in 
+    # the application. That file also has values for depth and plunge rate. 
     print("Open button")
-def NewPressed():
+    openFile = filedialog.askopenfilename(title='Open File',initialdir=baseDirectory)
+    print(openFile)
+    # open the coordinates file. This is just a pair of numbers on each line, x, then y, separated by a single
+    # space. The readLines method creates a list of lines from this file, then we split each line into the two
+    # fields (split()) and remove the end of line (strip())
+    coordsFile = open(openFile, "r")
+    coordsLines = coordsFile.readlines()
+
+    for line in coordsLines:
+        coords = line.strip().split(' ')
+        # just print the coords value for now.
+        print(coords)
+        
+    line_number=0
+    for line in coordsLines:
+        coords = line.strip().split(' ')
+        coordList.append([coords[XVALUE], coords[YVALUE], Entry(window), Entry(window), StringVar(), StringVar()])
+        coordList[line_number][XWIDGET].insert(END, coordList[line_number][XVALUE])
+        coordList[line_number][YWIDGET].insert(END, coordList[line_number][YVALUE])
+        line_number += 1
+        
+def new_pressed():
     print("New button")
-def SavePressed():
+def save_pressed():
     print("Save button")
-def SaveAsPressed():
+    saveFile = filedialog.asksaveasfile(title='Open File')
+    print(saveFile)
+
+def save_as_pressed():
     print("Save As button")
-def GenGcodePressed():
+
+
+def gen_gcode_pressed():
     print("Gen Gcode button")
-def ExitPressed():
+
+
+def exit_pressed():
     print("Exit button")
-def AbsRelSelectVarChanged(*args):
+
+
+def abs_rel_select_var_changed(*args):
     print("Absolute/Relative Menu Changed")
-    print(absRelSelectVar.get())
-def InchMmSelectVarChanged(*args):
+    print(abs_rel_select_var.get())
+
+
+def inch_mm_select_var_changed(*args):
     print("Inch/mm menu changed")
-    print(inchMmSelectVar.get())
-def AddButtonPressed():
+    print(inch_mm_select_var.get())
+
+
+def add_button_pressed():
     print("Add Point button")
-def donothing():
-    filewin = Toplevel(window)
-    button = Button(filewin, text="Do nothing button")
-    button.pack()
-    print("donothing")
+
 
 coordList = []
 
-#coordList.append([])
+# coordList.append([])
 
-gcodeFile = open(gcodeFileName, "w")
+# gcodeFile = open(gcodeFileName, "w")
 
 # set up the GUI
 window = Tk()
 s = ttk.Style()
-#s.theme_use('xpnative')
-#s.configure('window.TFrame', font=('Helvetica', 30))
+# s.theme_use('xpnative')
+# s.configure('window.TFrame', font=('Helvetica', 30))
 #
 # create and size the main window
 #
 window.title('Spot Drilling Tool')
 
-menubar = Menu(window)
-filemenu = Menu(menubar, tearoff=0)
-filemenu.add_command(label="New", command=NewPressed)
-filemenu.add_command(label="Open", command=OpenPressed)
-filemenu.add_command(label="Save", command=SavePressed)
-filemenu.add_command(label="Save as...", command=SaveAsPressed)
-filemenu.add_command(label="Write GCode", command=GenGcodePressed)
-filemenu.add_command(label="Exit", command=ExitPressed)
-menubar.add_cascade(label="File", menu=filemenu)
+menu_bar = Menu(window)
+filemenu = Menu(menu_bar, tearoff=0)
+filemenu.add_command(label="New", command=new_pressed)
+filemenu.add_command(label="Open", command=open_pressed)
+filemenu.add_command(label="Save", command=save_pressed)
+filemenu.add_command(label="Save as...", command=save_as_pressed)
+filemenu.add_command(label="Write GCode", command=gen_gcode_pressed)
+filemenu.add_command(label="Exit", command=exit_pressed)
+menu_bar.add_cascade(label="File", menu=filemenu)
 
 #
 # Create the GUI widgets
 #
-depthText = StringVar()
-depthLabel = Label(window, textvariable=depthText, font=('Helvetica', 12))
-depthText.set('Depth')
+depth_text = StringVar()
+depth_label = Label(window, textvariable=depth_text, font=('Helvetica', 12))
+depth_text.set('Depth')
 
-plungeText = StringVar()
-plungeLabel = Label(window, textvariable=plungeText, font=('Helvetica', 12))
-plungeText.set('Plunge Rate')
+plunge_text = StringVar()
+plunge_label = Label(window, textvariable=plunge_text, font=('Helvetica', 12))
+plunge_text.set('Plunge Rate')
 
-depthEntry = Entry(window)
-plungeEntry = Entry(window)
+depth_entry = Entry(window)
+plunge_entry = Entry(window)
 
-addButton = Button(window, text = "Add Point", command = AddButtonPressed)
+add_button = Button(window, text = "Add Point", command = add_button_pressed)
 
-xText = StringVar()
-xLabel = Label(window, textvariable=xText, font=('Helvetica', 12))
-xText.set('    X    ')
+x_text = StringVar()
+x_label = Label(window, textvariable=x_text, font=('Helvetica', 12))
+x_text.set('    X    ')
 
-yText = StringVar()
-yLabel = Label(window, textvariable=yText, font=('Helvetica, 12'))
-yText.set('    Y    ')
+y_text = StringVar()
+y_label = Label(window, textvariable=y_text, font=('Helvetica, 12'))
+y_text.set('    Y    ')
 
-inchMmSelectVar = StringVar(window)
-inchMmSelectVar.set("Unit: Inches")
-inchMmSelectMenu = OptionMenu(window, inchMmSelectVar, 'Unit: Inches', 'Unit: Millimeters')
-inchMmSelectVar.trace('w', InchMmSelectVarChanged)
+inch_mm_select_var = StringVar(window)
+inch_mm_select_var.set("Unit: Inches")
+inch_mm_select_menu = OptionMenu(window, inch_mm_select_var, 'Unit: Inches', 'Unit: Millimeters')
+inch_mm_select_var.trace('w', inch_mm_select_var_changed)
 
-absRelSelectVar = StringVar(window)
-absRelSelectVar.set("Mode: Absolute")
-absRelSelectMenu = OptionMenu(window, absRelSelectVar, 'Mode: Absolute', 'Mode: Relative')
-absRelSelectVar.trace('w', AbsRelSelectVarChanged)
+abs_rel_select_var = StringVar(window)
+abs_rel_select_var.set("Mode: Absolute")
+abs_rel_select_menu = OptionMenu(window, abs_rel_select_var, 'Mode: Absolute', 'Mode: Relative')
+abs_rel_select_var.trace('w', abs_rel_select_var_changed)
 
 #
 # Place the widgets in the window
 #
-depthLabel.grid(      row=0, column=0, padx=4, pady=0)
-plungeLabel.grid(     row=0, column=1, padx=4, pady=4)
-depthEntry.grid(      row=1, column=0, padx=4, pady=0)
-plungeEntry.grid(     row=1, column=1, padx=4, pady=0)
-xLabel.grid(          row=2, column=0, padx=4, pady=0)
-yLabel.grid(          row=2, column=1, padx=4, pady=0)
-addButton.grid(       row=0, column=2, padx=4, pady=4)
-inchMmSelectMenu.grid(row=1, column=2, padx=4, pady=4, sticky=W)
-absRelSelectMenu.grid(row=2, column=2, padx=4, pady=4, sticky=W)
+depth_label.grid(        row=0, column=0, padx=4, pady=0)
+plunge_label.grid(       row=0, column=1, padx=4, pady=4)
+depth_entry.grid(        row=1, column=0, padx=4, pady=0)
+plunge_entry.grid(       row=1, column=1, padx=4, pady=0)
+x_label.grid(            row=2, column=0, padx=4, pady=0)
+y_label.grid(            row=2, column=1, padx=4, pady=0)
+add_button.grid(         row=0, column=2, padx=4, pady=4)
+inch_mm_select_menu.grid(row=1, column=2, padx=4, pady=4, sticky=W)
+abs_rel_select_menu.grid(row=2, column=2, padx=4, pady=4, sticky=W)
 
 # create a list for each coordinate pair consisting of the value of X, the value of Y, and two tk
 # entry widgets. The widgets will be displayed in the GUI window. Each of these coordinate pair lists
 # will be appended to the coordList, previously initialized as an empty list, resulting in a list of
 # coordinate pair lists.
 #
-lineNumber=0
-for line in coordsLines:
-    coords = line.strip().split(' ')
-    coordList.append([coords[XVALUE], coords[YVALUE], Entry(window), Entry(window), StringVar(), StringVar()])
-    coordList[lineNumber][XWIDGET].insert(END, coordList[lineNumber][XVALUE])
-    coordList[lineNumber][YWIDGET].insert(END, coordList[lineNumber][YVALUE])
-    lineNumber += 1
-
 
 print(coordList)  # debug temp
 
 #
 # Place X and Y entry widgets in the window
 #
-gridrow=3
-for lineNumber in range(6):
-    coordList[lineNumber][XWIDGET].grid(row=gridrow,column=0, pady=4, padx=4)
-    coordList[lineNumber][YWIDGET].grid(row=gridrow,column=1, pady=4, padx=4)
+gridrow = 3
+for line_number in range(6):
+    coordList[line_number][XWIDGET].grid(row=gridrow,column=0, pady=4, padx=4)
+    coordList[line_number][YWIDGET].grid(row=gridrow,column=1, pady=4, padx=4)
     gridrow += 1
 
 # Start the GUI main loop
-window.config(menu=menubar)
+window.config(menu=menu_bar)
 window.mainloop()
