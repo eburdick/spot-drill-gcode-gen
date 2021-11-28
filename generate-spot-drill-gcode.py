@@ -5,26 +5,47 @@
 # at those coordinates. By default it starts at X=0, Y=0, Z=0. Functionality:
 #
 # GUI: One window with the following widgets...
+#    Window menu bar with...
+#        File menu
+#            New
+#                Erases everything and presents an empty GUI for creating a new set of points
+#                Warning popup to and ask to save.
+#            Open
+#                Erases everything and populates from a file. After this, changes can be made,
+#                including adding and removing points, and modifying depth and plunge rate.
+#            Save
+#                Save current state to the original file that was opened. If there is no original
+#                file, this becomes a save as.
+#            Save as
+#                Prompt the user for a new file to save current state. If the file exists, a warning
+#                box pops up.
+#            Write GCode
+#                Generates gcode and writes to a file. User is prompted to specify file. If file
+#                exists, a warning box pops up.
+#            Exit
+#                Exits program. If there are unsaved changes, a warning box pops up, giving user
+#                the option to save or save as.
 #    Depth Input - specifies how deep to drill. Default .1 inch
 #    Plunge Rate Input - specified how fast to move the z axis during the cuts. Default: 1.5 inches/minute
-#    Open Button - pops up a file section box for the user to choose a file containing a list of coordinates.
-#    Save Button - pops up a file selection box for the user to save the current coordinates in a file.
-#    New Button - adds a line to the coordinate list to be filled in by the user.
+#    Add Point - adds coordinate input row with blank values.
 #    Coordinate Inputs - arranged in rows of two each, this is where the user enters X and Y coordinates.
 #        The user can enter a number (float), or an expression that evaluates to a number.
-#    Generate Gcode Button - pops up a file selection box for the user to specify the gcode file, and writes
-#        gcode to the file.
-#    Inch/mm menu. Default Inch
-#    Absolute/relative menu. Default Absolute
-#    Exit Button - exits the program. Asks user to save
+#    Inch/mm menu. Defaults to Inch. If it is changed while there are points in place, they are converted.
+#        For example, 1 inch becomes 25.4 mm when switching from inch to mm
+#    Absolute/relative menu. Default Absolute. When Relative is active, the first point is absolute and all
+#        others are relative to that. For example, if the first point is a 1,1, and the second point is at
+#        2,2, absolute mode with show 2,2 for that point, and relative with show 1,1 for that point. If
+#        points are already in place, switching between the two will make the appropriate changes.
+#        !!! consider having a relative mode where each point is relative to the previous point !!!
 #
-#      Depth        Plunge       [Add Point]
-#      __________  __________    [Open]
-#          X          Y          [Save]
-#      __________  __________    v Inch
-#      __________  __________    v Absolute
-#      __________  __________    [Gen Gcode]
-#                                        [Exit]
+#      Depth       Plunge Rate     [Add Point]
+#      __________  __________    [Unit: Inches -]
+#          X          Y          [Mode: Absolute -]
+#      __________  __________
+#      __________  __________
+#      __________  __________
+#      __________  __________
+#
 
 
 #
@@ -37,23 +58,144 @@ from tkinter import *                # GUI stuff
 from tkinter import ttk              # more widgets
 from tkinter.scrolledtext import ScrolledText  # not sure why we need to import a module for scrolled text
 from tkinter import filedialog
+from tkinter import messagebox as mb
 
+# Point index constants. A point is a list of values with indices defined by these constants.
+POINTNUMBER = 0
+XVALUE = 1
+YVALUE = 2
+XWIDGET = 3
+YWIDGET = 4
+XSTRINGVAR = 5
+YSTRINGVAR = 6
+point_row_offset = 3
 baseDirectory = 'C:\development\python\PycharmProjects\spot-drill-gcode-gen'
+window = Tk()
 
+
+def xcallback(sv):
+    print("x="+sv.get())
+
+def ycallback(sv):
+    print("y="+sv.get())
+
+
+
+
+
+
+class PointsList:
+    #
+    # The list of points in the application and methods for creating, deleting, etc.
+    #
+    points = []
+    point_count = 0;
+
+    def __init__(self):
+        self.points = []
+        self.point_count = 0;
+
+    def clear(self):
+        self.points = []
+        self.point_count = 0;
+
+# append_point adds a point at the end of the list and adds a row to the gui point display.
+    def append_point(self, x, y):
+        self.point_count += 1
+        # create StringVar objects and assign values to them
+        x_stringvar = StringVar(window)
+        x_stringvar.set(x)
+        y_stringvar = StringVar(window)
+        y_stringvar.set(y)
+        # set up a callback for capturing user changes to the widgets. Probably don't need this, though
+        x_stringvar.trace("w", lambda name, index, mode, sv=x_stringvar: xcallback(sv))
+        y_stringvar.trace("w", lambda name, index, mode, sv=y_stringvar: ycallback(sv))
+        self.points.append([self.point_count,
+                            x,
+                            y,
+                            Entry(window, textvariable=x_stringvar),
+                            Entry(window, textvariable=y_stringvar),
+                            x_stringvar,
+                            y_stringvar])
+    # place entry widgets on the grid
+        self.points[self.point_count-1][XWIDGET].grid(row=self.point_count+point_row_offset, column=0, padx=4, pady=0)
+        self.points[self.point_count-1][YWIDGET].grid(row=self.point_count+point_row_offset, column=1, padx=4, pady=0)
+
+
+        return self.point_count
+
+
+    def delete_point(self, ptnum):
+        # print("PointsList delete_point call: Point #" + str(ptnum))
+        line_number_offset = 0
+        i = 0
+        while i < len(self.points):
+            if self.points[i][POINTNUMBER] == ptnum:
+                # print("PointsList deleting point at index " + str(i))
+                # The point number of the point in the list matches the target point number. Delete the
+                # point and set the index_offset to -1. The will be be used to decrement the line number
+                # of subsequent lines. We do not increment the list index here because the next point will
+                # take the place of this one after it is deleted.
+                del self.points[i]
+                self.point_count -= 1
+                line_number_offset = -1
+            else:
+                # The point number of the point in the list does not match the target point number.
+                # Adjust the line number by adding line_number_offset, which starts at zero and gets
+                # set to -1 after the target point is deleted.
+                self.points[i][POINTNUMBER] += line_number_offset
+                i += 1
+        if line_number_offset == -1:
+            return 0
+        else:
+            return 1
+
+
+# Test code for PointList class
+plist = PointsList()
+print('initial point list')
+for point in plist.points:
+    print(point)
+print('appending point')
+myid = plist.append_point(1.0, 2.0)
+for point in plist.points:
+    print(point)
+print('appending point')
+myid = plist.append_point(3.0, 4.0)
+for point in plist.points:
+    print(point)
+print('appending point')
+myid = plist.append_point(5.0, 6.0)
+for point in plist.points:
+    print(point)
+print('appending point')
+myid = plist.append_point(7.0, 8.0)
+for point in plist.points:
+    print(point)
+print('deleting first point')
+myid = plist.delete_point(1)
+for point in plist.points:
+    print(point)
+print('deleting last point')
+myid = plist.delete_point(3)
+for point in plist.points:
+    print(point)
+# end of class PointsList test code
+
+# test code for type conversion
 test = float(numexpr.evaluate('.5+1'))
 print(test)
 print(test*2.54)
 print(type(test))
+# end type conversion test code
 
-XVALUE = 0;
-YVALUE = 1;
-XWIDGET = 2;
-YWIDGET = 3;
 
+
+"""
 # temporary code to open working files. This will be replaced by a file selection box later
-#coordsFileName = "test_coords.txt"
-#gcodeFileName = "test_gcode.nc"
-
+coordsFileName = "test_coords.txt"
+gcodeFileName = "test_gcode.nc"
+"""
 
 #
 # Data structures
@@ -123,6 +265,7 @@ def open_pressed():
     print("Open button")
     openFile = filedialog.askopenfilename(title='Open File',initialdir=baseDirectory)
     print(openFile)
+    mb.askyesno('are you sure?')
     # open the coordinates file. This is just a pair of numbers on each line, x, then y, separated by a single
     # space. The readLines method creates a list of lines from this file, then we split each line into the two
     # fields (split()) and remove the end of line (strip())
@@ -137,17 +280,31 @@ def open_pressed():
     line_number=0
     for line in coordsLines:
         coords = line.strip().split(' ')
-        coordList.append([coords[XVALUE], coords[YVALUE], Entry(window), Entry(window), StringVar(), StringVar()])
-        coordList[line_number][XWIDGET].insert(END, coordList[line_number][XVALUE])
-        coordList[line_number][YWIDGET].insert(END, coordList[line_number][YVALUE])
+#        coordList.append([coords[XVALUE], coords[YVALUE], Entry(window), Entry(window), StringVar(), StringVar()])
+#       coordList[line_number][XWIDGET].insert(END, coordList[line_number][XVALUE])
+#       coordList[line_number][YWIDGET].insert(END, coordList[line_number]
         line_number += 1
-        
+
+#
+# display_points takes the list of points in a PointsList object and displays them in the GUI. The display is a
+# column of pairs of Entry widgets with a line for each list element. To start, we delete all of the Entry
+# widgets already there. This just keeps things clean, because we create new ones every time we display a
+# new point list.
+#
+def display_points(lst = PointsList):
+    # !!! placeholder code. Replace with gui placement code
+    for thing in lst.points:
+        print(thing)
+
+
 def new_pressed():
     print("New button")
+
+
 def save_pressed():
     print("Save button")
-    saveFile = filedialog.asksaveasfile(title='Open File')
-    print(saveFile)
+    save_file = filedialog.asksaveasfile(title='Open File')
+    print(save_file)
 
 def save_as_pressed():
     print("Save As button")
@@ -158,8 +315,8 @@ def gen_gcode_pressed():
 
 
 def exit_pressed():
-    print("Exit button")
-
+    print("Exit button. Clean up has to happen here.")
+    clean_up_and_exit()
 
 def abs_rel_select_var_changed(*args):
     print("Absolute/Relative Menu Changed")
@@ -175,6 +332,15 @@ def add_button_pressed():
     print("Add Point button")
 
 
+def clean_up_and_exit():
+    print("cleanup and exit called")
+    window.destroy()
+
+def on_closing():
+    print("on_closing called")
+    if mb.askokcancel("Quit", "Do you want to quit?"):
+        clean_up_and_exit()
+
 coordList = []
 
 # coordList.append([])
@@ -182,7 +348,7 @@ coordList = []
 # gcodeFile = open(gcodeFileName, "w")
 
 # set up the GUI
-window = Tk()
+
 s = ttk.Style()
 # s.theme_use('xpnative')
 # s.configure('window.TFrame', font=('Helvetica', 30))
@@ -254,17 +420,23 @@ abs_rel_select_menu.grid(row=2, column=2, padx=4, pady=4, sticky=W)
 # coordinate pair lists.
 #
 
-print(coordList)  # debug temp
+# print(coordList)  # debug temp
 
 #
 # Place X and Y entry widgets in the window
 #
+"""
 gridrow = 3
 for line_number in range(6):
     coordList[line_number][XWIDGET].grid(row=gridrow,column=0, pady=4, padx=4)
     coordList[line_number][YWIDGET].grid(row=gridrow,column=1, pady=4, padx=4)
     gridrow += 1
-
+"""
 # Start the GUI main loop
 window.config(menu=menu_bar)
+
+
+
+window.protocol("WM_DELETE_WINDOW", on_closing)
+
 window.mainloop()
