@@ -1,52 +1,136 @@
 #!/usr/bin/python3
+"""
 
-#
-# This program takes a series of coordinates and generates the gcode for a cnc machine to spot drill
-# at those coordinates. By default it starts at X=0, Y=0, Z=0. Functionality:
-#
-# GUI: One window with the following widgets...
-#    Window menu bar with...
-#        File menu
-#            New
-#                Erases everything and presents an empty GUI for creating a new set of points
-#                Warning popup to and ask to save.
-#            Open
-#                Erases everything and populates from a file. After this, changes can be made,
-#                including adding and removing points, and modifying depth and plunge rate.
-#            Save
-#                Save current state to the original file that was opened. If there is no original
-#                file, this becomes a save as.
-#            Save as
-#                Prompt the user for a new file to save current state. If the file exists, a warning
-#                box pops up.
-#            Write GCode
-#                Generates gcode and writes to a file. User is prompted to specify file. If file
-#                exists, a warning box pops up.
-#            Exit
-#                Exits program. If there are unsaved changes, a warning box pops up, giving user
-#                the option to save or save as.
-#    Depth Input - specifies how deep to drill. Default .1 inch
-#    Plunge Rate Input - specified how fast to move the z axis during the cuts. Default: 1.5 inches/minute
-#    Add Point - adds coordinate input row with blank values.
-#    Coordinate Inputs - arranged in rows of two each, this is where the user enters X and Y coordinates.
-#        The user can enter a number (float), or an expression that evaluates to a number.
-#    Inch/mm menu. Defaults to Inch. If it is changed while there are points in place, they are converted.
-#        For example, 1 inch becomes 25.4 mm when switching from inch to mm
-#    Absolute/relative menu. Default Absolute. When Relative is active, the first point is absolute and all
-#        others are relative to that. For example, if the first point is a 1,1, and the second point is at
-#        2,2, absolute mode with show 2,2 for that point, and relative with show 1,1 for that point. If
-#        points are already in place, switching between the two will make the appropriate changes.
-#        !!! consider having a relative mode where each point is relative to the previous point !!!
-#
-#      Depth       Plunge Rate     [Add Point]
-#      __________  __________    [Unit: Inches -]
-#          X          Y          [Mode: Absolute -]
-#      __________  __________
-#      __________  __________
-#      __________  __________
-#      __________  __________
-#
+This program takes a series of coordinates and generates the gcode for a cnc machine to spot drill
+at those coordinates. By default it starts at X=0, Y=0, Z=0. Functionality:
 
+GUI: One window with the following widgets...
+Window menu bar with...
+    File menu
+        New
+            Erases everything and presents an empty GUI for creating a new set of points
+            Warning popup to and ask to save.
+        Open
+            Erases everything and populates from a file. After this, changes can be made,
+            including adding and removing points, and modifying depth and plunge rate.
+        Save
+            Save current state to the original file that was opened. If there is no original
+            file, this becomes a save as.
+        Save as
+            Prompt the user for a new file to save current state. If the file exists, a warning
+            box pops up.
+        Write GCode
+            Generates gcode and writes to a file. User is prompted to specify file. If file
+            exists, a warning box pops up.
+        Exit
+            Exits program. If there are unsaved changes, a warning box pops up, giving user
+            the option to save or save as.
+    Edit menu
+        add point
+            Adds a point at the end of the list
+        add point before
+            Add a point before the selected point line
+        add point after
+            Add a point after the selected point line
+        delete
+            Deletes the selected point line
+        move up
+            Moves selected point line above the line above it
+        move down
+            Move the selected point line below the line following it
+    Depth Input
+        specifies how deep to drill. Default .1 inch
+    Plunge Rate Input
+        specified how fast to move the z axis during the cuts. Default: 1.5 inches/minute
+    Add Point
+        adds coordinate input row with blank values.
+    Coordinate Inputs
+        arranged in rows of two each, this is where the user enters X and Y coordinates.
+        The user can enter a number (float), or an expression that evaluates to a number.
+        Each point line has a check button next to it. If this is checked, then an edit
+        command, insert before, insert after, delete, move up or move down will apply to
+        the corresponding point line.
+    Inch/mm menu.
+        Defaults to Inch. If it is changed while there are points in place, they are converted.
+        For example, 1 inch becomes 25.4 mm when switching from inch to mm
+    Absolute/relative menu.
+        Default Absolute. When Relative is active, the first point is absolute and all
+        others are relative to that. For example, if the first point is a 1,1, and the second point is at
+        2,2, absolute mode with show 2,2 for that point, and relative with show 1,1 for that point. If
+        points are already in place, switching between the two will make the appropriate changes.
+        !!! consider having a relative mode where each point is relative to the previous point !!!
+
+          Depth     Plunge Rate [Add Point]
+        __________  ___________ [Unit: Inches -]
+            X            Y      [Mode: Absolute -]
+        __________  ___________ [ ]
+        __________  ___________ [ ]
+        __________  ___________ [ ]
+        __________  ___________ [ ]
+
+Usage Models...
+    Edit existing points list
+        Points lists can be saved to a file. To edit an existing one, user opens the file, which
+        will populate the GUI, deleting anything that was there before. User that modifies it in
+        the GUI.
+    Create new point list
+        User fills in values in the GUI using the editing features. At any point, the GUI content
+        can be saved to a file.
+    Editing
+        Points can be added, deleted and moved. To keep things simple in the GUI, I am doing this
+        by allowing the user to put a check mark on one point at a time, and then pick the
+        desired edit operation for that point, so, for example, to delete a point, you check the
+        box for that line and pick delete from the edit menu. If an edit operation results in
+        a line being gone, the check mark goes away, too. If an edit results in a line being
+        moved, the check mark moves with it. If an edit is impossible, like moving the top line
+        up, it just does not happen. If an edit results in a new point being created, the check
+        mark for the new item is active.
+
+Error checking...
+    The main error we care about is text in the point coordinates that does not represent a
+    number. This is checked at least whenever we process the entire list, including when we
+    save to a file and when we process into a gcode file. We could also check when an entry
+    widget loses focus, like when we hit tab to go to the next field.
+
+Revison History:
+
+2021-11-28 10AM
+Starting this history after lots of experiments. Just removed StringVars for entry widgets, because
+they are not really necessary for this application. I will just carry the values in the widgets and
+retrieve them as needed, checking for syntax errors at that point. Syntax errors can also be checked
+When focus moves from numeric fields. We can also check for range errors at that point.
+
+2021-11-29 4pm
+In the middle of implementing the selection mechanism.
+
+2021-12-2 11:30 pm
+Added number error checking to all of the input widgets on losing focus (<FocusOut>). Still need
+to finish the selection mechanism. Also need to set up number error checking before any function
+that uses the values in the input widgets, because just looking at <FocusOut> events will
+not catch everything.
+
+Implementation notes...
+
+At this point, the selection state is
+in the PointsList class in the form of a member variable row_selected to indicate which
+row is selected. 0 means none. The check button widget for each point lives in the point data
+structure, which is a list of widgets. The value changed callback for those check box widgets
+lives outside of the class, but it is just a utility routine, so that seems fine. An alternative
+would be to just have the check button widgets live in a parallel array in the gui, but having
+all of the state in the class feels cleaner.
+
+Selection actions...
+* select a line - click on the line's check button, changing its state from unchecked to checked.
+This will call the check_state_change(row) callback, which will check the new state of the widget.
+If the new state is "checked" then it will change the row_selected state to the number of the row
+and then force all of the other check box widgets to be unchecked.
+* unselect a line - click on the line's check button, changing its state from checked to unchecked.
+This will call the check_state_change(row) callback, which will check the new state of the widget.
+If the new state is "unchecked" then it will set the row_selected state to 0, because at this
+point, none of the boxes will be checked.
+
+
+"""
 
 #
 # To start, we will just read the coordinates from a file, but adding a fill in the blanks gui would make
@@ -62,68 +146,91 @@ from tkinter import messagebox as mb
 
 # Point index constants. A point is a list of values with indices defined by these constants.
 POINTNUMBER = 0
-XVALUE = 1
-YVALUE = 2
-XWIDGET = 3
-YWIDGET = 4
-XSTRINGVAR = 5
-YSTRINGVAR = 6
-point_row_offset = 3
+XWIDGET = 1
+YWIDGET = 2
+CHECKBUTTON = 3
+
+point_row_offset = 3  # starting row of points list in the gui
 baseDirectory = 'C:\development\python\PycharmProjects\spot-drill-gcode-gen'
 window = Tk()
 
+def check_state_change(line):
+    print("check state changed...index: " + str(line))
 
-def xcallback(sv):
-    print("x="+sv.get())
-
-def ycallback(sv):
-    print("y="+sv.get())
-
-
-
-
-
-
-class PointsList:
+#
+# Check that the text in an input widget is a number. If not, turn the widget
+# background red and raise a message box.
+#
+def check_if_num(event):
+    widget = event.widget
     #
+    # attempt to convert the string to a number. If it fails, it will throw a ValueError
+    # exception, which we catch to inform the user.
+    #
+    try:
+        float(widget.get())
+        widget.config(bg="WHITE")
+    except ValueError:
+        widget.config(bg="RED")
+        mb.showerror("error", widget.get() + " is not a number")
+
+class PointsList:    #
     # The list of points in the application and methods for creating, deleting, etc.
     #
     points = []
-    point_count = 0;
+    point_count = 0
+    row_selected = 0  # 0 is none selected. Note row numbers are one bigger that the corresponding index
 
     def __init__(self):
         self.points = []
-        self.point_count = 0;
+        self.point_count = 0
 
     def clear(self):
         self.points = []
-        self.point_count = 0;
+        self.point_count = 0
 
 # append_point adds a point at the end of the list and adds a row to the gui point display.
     def append_point(self, x, y):
         self.point_count += 1
-        # create StringVar objects and assign values to them
-        x_stringvar = StringVar(window)
-        x_stringvar.set(x)
-        y_stringvar = StringVar(window)
-        y_stringvar.set(y)
-        # set up a callback for capturing user changes to the widgets. Probably don't need this, though
-        x_stringvar.trace("w", lambda name, index, mode, sv=x_stringvar: xcallback(sv))
-        y_stringvar.trace("w", lambda name, index, mode, sv=y_stringvar: ycallback(sv))
+        line = self.point_count
+        #
+        # Create the entry widgets and check button for this point
+        #
+        xentry = Entry(window)
+        xentry.insert(0, x)
+        yentry = Entry(window)
+        yentry.insert(0, y)
+        # check button state change callback passes the line number of this point.
+        # This is implemented as an inline (lambda) function that calls the callback
+        # with the argument.
+        check_button = Checkbutton(window, command=lambda: check_state_change(line))
+        #
+        # append the point t0 the end of the points list
+        #
         self.points.append([self.point_count,
-                            x,
-                            y,
-                            Entry(window, textvariable=x_stringvar),
-                            Entry(window, textvariable=y_stringvar),
-                            x_stringvar,
-                            y_stringvar])
-    # place entry widgets on the grid
+                            xentry,
+                            yentry,
+                            check_button])
+        # place entry widgets and check button on the grid
         self.points[self.point_count-1][XWIDGET].grid(row=self.point_count+point_row_offset, column=0, padx=4, pady=0)
         self.points[self.point_count-1][YWIDGET].grid(row=self.point_count+point_row_offset, column=1, padx=4, pady=0)
-
-
+        self.points[self.point_count-1][CHECKBUTTON].grid(row=self.point_count+point_row_offset, column=2, sticky=W)
+        # set up event callback for entry widget loss of focus. This is so we can check whether the text
+        # in the widget is a valid number
+        self.points[self.point_count-1][XWIDGET].bind('<FocusOut>', check_if_num)
+        self.points[self.point_count-1][YWIDGET].bind('<FocusOut>', check_if_num)
         return self.point_count
 
+    #
+    def select_row(self, row):
+        #
+        # deselect the existing selected row, if any, then set the target row as row_selected. Note this
+        # will be called from the GUI, which will have already set the widget as being selected.
+        #
+        print("row selected" + str(self.row_selected))
+        if self.row_selected >= 0:
+            self.points[self.row_selected-1][CHECKBUTTON].deselect()
+        row_selected = row
 
     def delete_point(self, ptnum):
         # print("PointsList delete_point call: Point #" + str(ptnum))
@@ -150,6 +257,10 @@ class PointsList:
         else:
             return 1
 
+    def read_point(self, ptnum):
+        values = (self.points[ptnum][XWIDGET].get(), self.points[ptnum][YWIDGET].get())
+        return values
+
 
 # Test code for PointList class
 plist = PointsList()
@@ -157,7 +268,7 @@ print('initial point list')
 for point in plist.points:
     print(point)
 print('appending point')
-myid = plist.append_point(1.0, 2.0)
+myid = plist.append_point('', 2.0)
 for point in plist.points:
     print(point)
 print('appending point')
@@ -172,6 +283,7 @@ print('appending point')
 myid = plist.append_point(7.0, 8.0)
 for point in plist.points:
     print(point)
+"""
 print('deleting first point')
 myid = plist.delete_point(1)
 for point in plist.points:
@@ -180,6 +292,7 @@ print('deleting last point')
 myid = plist.delete_point(3)
 for point in plist.points:
     print(point)
+    """
 # end of class PointsList test code
 
 # test code for type conversion
@@ -189,6 +302,11 @@ print(test*2.54)
 print(type(test))
 # end type conversion test code
 
+# test reading entry widgets without StringVar
+print("   reading points...")
+print(plist.read_point(0))
+print(plist.read_point(1))
+# test reading entry widgets without StringVar
 
 
 """
@@ -259,6 +377,13 @@ gcodeFileName = "test_gcode.nc"
 #
 # program state
 #
+
+def check_state_change(line):
+    print("check state changed")
+    print("index: " + str(line))
+    plist.select_row(line)
+
+
 def open_pressed():
     # Open means read a coordinates file and make the points in that file the current points in 
     # the application. That file also has values for depth and plunge rate. 
@@ -379,7 +504,10 @@ plunge_label = Label(window, textvariable=plunge_text, font=('Helvetica', 12))
 plunge_text.set('Plunge Rate')
 
 depth_entry = Entry(window)
+depth_entry.bind('<FocusOut>', check_if_num)
+
 plunge_entry = Entry(window)
+plunge_entry.bind('<FocusOut>', check_if_num)
 
 add_button = Button(window, text = "Add Point", command = add_button_pressed)
 
