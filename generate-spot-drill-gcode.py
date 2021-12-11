@@ -120,11 +120,11 @@
 #
 # Selection actions...
 # * select a line - click on the line's check button, changing its state from unchecked to checked.
-# This will call the check_state_change(row) callback, which will check the new state of the widget.
+# This will call the check_select_change(row) callback, which will check the new state of the widget.
 # If the new state is "checked" then it will change the row_selected state to the number of the row
 # and then force all of the other check box widgets to be unchecked.
 # * unselect a line - click on the line's check button, changing its state from checked to unchecked.
-# This will call the check_state_change(row) callback, which will check the new state of the widget.
+# This will call the check_select_change(row) callback, which will
 # If the new state is "unchecked" then it will set the row_selected state to 0, because at this
 # point, none of the boxes will be checked.
 #
@@ -135,11 +135,22 @@
 # removed old code that is no longer needed and got rid of triple quote comment blocks, which
 # are documentation strings, not comment blocks. Discovered PyCharm ctrl+/ for doing mass
 # commenting. Next, get back to selection stuff.
+#
+# ----2021-12-10 5:30 pm
+# Finished selection stuff. To carry the state of selection of each point, added a BooleanVar
+# to each point to carry the state of the selection check button. Added deselect_row method to
+# the pointslist class.
+#
+# ---- 11 pm
+# Added code for edit menu with tearoff, including add point and delete point. Delete point
+# needs to be updated to re-create all of the check buttons beyond the deleted one so that
+# the callback gets the right index for selection. Otherwise everything is off by one after
+# a delete because the pragma remembers its original index.
 
 import numexpr                       # for allowing numeric expressions in coordinate fields
 from tkinter import *                # GUI stuff
 from tkinter import ttk              # more widgets
-from tkinter.scrolledtext import ScrolledText  # not sure why we need to import a module for scrolled text
+# from tkinter.scrolledtext import ScrolledText  # not sure why we need to import a module for scrolled text
 from tkinter import filedialog
 from tkinter import messagebox as mb
 
@@ -148,13 +159,19 @@ POINTNUMBER = 0
 XWIDGET = 1
 YWIDGET = 2
 CHECKBUTTON = 3
+SELECTED = 4
 
-point_row_offset = 3  # starting row of points list in the gui
-baseDirectory = 'C:\development\python\PycharmProjects\spot-drill-gcode-gen'
+NONESELECTED = -1
+
+XCOLUMN = 0
+YCOLUMN = 1
+SELECTBOXCOLUMN = 2
+
+POINTROWOFFSET = 3  # starting row of points list in the gui
+BASEDIRECTORY = 'C:/development/python/PycharmProjects/spot-drill-gcode-gen'
 window = Tk()
-
-def check_select_change(line):
-    print("check select changed...index: " + str(line))
+ 
+ 
 
 #
 # Check that the text in an input widget is a number. If not, turn the widget
@@ -164,7 +181,8 @@ def check_if_num(event):
     widget = event.widget
     #
     # attempt to convert the string to a number. If it fails, it will throw a ValueError
-    # exception, which we catch to inform the user.
+    # exception, which we catch to inform the user by setting the corresponding widget's 
+    # background to red
     #
     try:
         float(widget.get())
@@ -173,13 +191,14 @@ def check_if_num(event):
         widget.config(bg="RED")
         mb.showerror("error", widget.get() + " is not a number")
 
+
 class PointsList:
     #
     # The list of points in the application and methods for creating, deleting, etc.
     #
     points = []
     point_count = 0
-    row_selected = 0  # 0 is none selected. Note row numbers are one bigger that the corresponding index
+    row_selected = NONESELECTED  # NONESELECTED is none selected.
 
     #
     # Constructor initializes the points list and the points count
@@ -187,9 +206,9 @@ class PointsList:
     def __init__(self):
         self.points = []
         self.point_count = 0
-
+        self.row_selected = NONESELECTED
     #
-    # Clear the object back to its initial states. Effectively remove all points
+    # Clear the object back to its initial state. Effectively remove all points
     #
     def clear(self):
         self.points = []
@@ -203,29 +222,33 @@ class PointsList:
         self.point_count += 1
         index = self.point_count-1
         #
-        # Create the entry widgets and check button for this point
+        # Create the entry widgets for this point
         #
         xentry = Entry(window)
         xentry.insert(0, x)
         yentry = Entry(window)
         yentry.insert(0, y)
-        # check button state change callback passes the line number of this point.
+        checkvar = BooleanVar()
+        # create the check button for this point. Its state change callback passes the index
+        # of this point, which will be used in the selection code.
         # This is implemented as an inline (lambda) function that calls the callback
         # with the argument.
-        check_button = Checkbutton(window, command=lambda: check_select_change(index))
+        check_button = Checkbutton(window, variable=checkvar, command=lambda: check_select_change(index, checkvar))
+
         #
-        # append the point to the end of the points list
+        # append the point as a list to the end of the points list
         #
         self.points.append([index,
                             xentry,
                             yentry,
-                            check_button])
+                            check_button,
+                            checkvar])
         #
         # place entry widgets and check button on the grid
         #
-        self.points[index][XWIDGET].grid(row=self.point_count+point_row_offset, column=0, padx=4, pady=0)
-        self.points[index][YWIDGET].grid(row=self.point_count+point_row_offset, column=1, padx=4, pady=0)
-        self.points[index][CHECKBUTTON].grid(row=self.point_count+point_row_offset, column=2, sticky=W)
+        self.points[index][XWIDGET].grid(row=self.point_count+POINTROWOFFSET, column=XCOLUMN, padx=4, pady=0)
+        self.points[index][YWIDGET].grid(row=self.point_count+POINTROWOFFSET, column=YCOLUMN, padx=4, pady=0)
+        self.points[index][CHECKBUTTON].grid(row=self.point_count+POINTROWOFFSET, column=SELECTBOXCOLUMN, sticky=W)
         #
         # set up event callback for entry widget loss of focus. This is so we can check whether the text
         # in the widget is a valid number
@@ -236,7 +259,7 @@ class PointsList:
         # set up even callback for
         #
         return self.point_count
-    #
+    
     # select_row mainly sets member variable row_selected to the specified row number. But it also
     # unchecks the rest of the check buttons. This could be done by just forcing the existing check
     # button to be unchecked, but to make sure we don't miss one, we just uncheck all buttons except
@@ -245,21 +268,39 @@ class PointsList:
         #
         # deselect all points except the one in the target row.
         #
-        print("row selected" + str(self.row_selected))
+        print("row being selected" + str(row))
+        print("old row selected " + str(self.row_selected))
+        self.row_selected = NONESELECTED  # preset for the case that no row is selected
         for pt in self.points:
-            if pt.index() != row:
+            if self.points.index(pt) != row:
                 pt[CHECKBUTTON].deselect()
+        self.row_selected = row
+        print("new row selected " + str(self.row_selected))
 
-
-        row_selected = row
+    def deselect_row(self, row):
+        #
+        # The user has unchecked a checkbox. This should result in no boxes checked,
+        # so we just set row_selected to NONESELECTED
+        #
+        print("old row selected " + str(self.row_selected))
+        print("row being deslected " + str(row))
+        self.row_selected = NONESELECTED
+        print("new row selected " + str(self.row_selected))
 
     def delete_point(self, ptnum):
-        # print("PointsList delete_point call: Point #" + str(ptnum))
+        #
+        # Clear the points display from the gui
+        #
+        self.clear_points_from_grid()
+        #
+        # loop through the points until the point number to be removed is encountered. At that point,
+        # the point is removed from the points list, and point_count is deleted. Also, the line number
+        # offset is set to -1 so that all following points will be numbered one less.
+        #
         line_number_offset = 0
         i = 0
         while i < len(self.points):
             if self.points[i][POINTNUMBER] == ptnum:
-                # print("PointsList deleting point at index " + str(i))
                 # The point number of the point in the list matches the target point number. Delete the
                 # point and set the index_offset to -1. The will be be used to decrement the line number
                 # of subsequent lines. We do not increment the list index here because the next point will
@@ -273,14 +314,34 @@ class PointsList:
                 # set to -1 after the target point is deleted.
                 self.points[i][POINTNUMBER] += line_number_offset
                 i += 1
-        if line_number_offset == -1:
-            return 0
-        else:
-            return 1
+        #
+        # Now, with the target point gone, we re-display the remaining points.
+        #
+        self.place_points_on_grid()
+        #if line_number_offset == -1:
+        #    return 0
+        #else:
+        #    return 1
 
     def read_point(self, ptnum):
-        values = (self.points[ptnum][XWIDGET].get(), self.points[ptnum][YWIDGET].get())
+        values = (self.points[ptnum][POINTNUMBER],
+                  self.points[ptnum][XWIDGET].get(),
+                  self.points[ptnum][YWIDGET].get(),
+                  self.points[ptnum][SELECTED].get())
         return values
+
+    def clear_points_from_grid(self):
+        for clrpoint in self.points:
+            clrpoint[XWIDGET].grid_remove()
+            clrpoint[YWIDGET].grid_remove()
+            clrpoint[CHECKBUTTON].grid_remove()
+
+    def place_points_on_grid(self):
+        for placeindex in range(0, len(self.points)):
+            self.points[placeindex][XWIDGET].grid(row=placeindex + POINTROWOFFSET, column=XCOLUMN, padx=4, pady=0)
+            self.points[placeindex][YWIDGET].grid(row=placeindex + POINTROWOFFSET, column=YCOLUMN, padx=4, pady=0)
+            self.points[placeindex][CHECKBUTTON].grid(row=placeindex + POINTROWOFFSET, column=SELECTBOXCOLUMN, sticky=W)
+        self.row_selected = NONESELECTED
 
 
 # Test code for PointList class
@@ -324,107 +385,44 @@ print(test*2.54)
 print(type(test))
 # end type conversion test code
 
-# test reading entry widgets without StringVar
-print("   reading points...")
-print(plist.read_point(0))
-print(plist.read_point(1))
-# test reading entry widgets without StringVar
 
 
-#
-# Data structures
-#
-# Coordinate list...
-#
-# Coordinates are stored in a list. Each coordinate pair is stored as a list containing the value,
-# the gui widgets for displaying them, and the string variables needed for communication with the
-# gui widgets.
-#
-# [
-#     [X value, Y value, X entry widget, Y entry widget, X StringVar, Y StringVar]
-#     [...]...
-# ]
-#
-# Coordinate list functions...
-#
-# class CoordPair
-#
-# The main object type used by this application is a coordinate pair, and X and Y value that determines
-# the physical location of a hole in the workpiece. A CoordPair can come from an input file, or be added
-# by the user by clicking the Add button. CoordPairs are kept in a list that the gcode generation code
-# uses, or the Save functionality writes to a file.
-#
-# CoordPair members:
-#
-# X value
-# Y value
-# X Entry widget
-# Y Entry widget
-# member functions set x, set y (maybe set value, including x and y)
-# member functions get x, get y (maybe get value, including x and y)
-#
-# creating a CoordPair instance called x looks like x.CoordPair, which will call the __init__() function in
-# the class definition
-#
-# Reading CoordPairs from a file:
-#    Open the file
-#    create a lines list from the file
-#    parse each into an x and y
-#    create a CoordPair from these values
-#       set x value and y value
-#       create X Entry widget and Y Entry widget
-#       populate X Entry widget and Y Entry widget with X and Y values
-#       place X Entry widget and Y Entry widget in the GUI grid
-#
-# Creating CoordPairs with the Gui:
-#    The Add button creates a new CoordPair with null values in X and Y.
-#    User adds values in Entry widgets
-
-# The main data structure for the program is a list of lists, structured like this...
-#
-# [[x, y, entry widget for x, entry widget for y]...]
-#
-# Example with two coordinates: [[.5, .5, xEntry, yEntry],[.5, 1.0, xEntry, yEntry]]
-#
-# I think I want to break this up some so I can deal with values in the coordinate list
-# separately.
-#
-
-#
-# program state
-#
-
-def check_state_change(line):
-    print("check state changed")
-    print("index: " + str(line))
-    plist.select_row(line)
-
+def check_select_change(line, val):
+    print("check select changed...index: " + str(line))
+    print("checkbutton state: " + str(val.get()))
+    if val.get():
+        plist.select_row(line)
+    else:
+        plist.deselect_row(line)
+    # for idx in range(0, len(plist.points)):
+    #     print(plist.read_point(idx))
 
 def open_pressed():
     # Open means read a coordinates file and make the points in that file the current points in 
     # the application. That file also has values for depth and plunge rate. 
     print("Open button")
-    openFile = filedialog.askopenfilename(title='Open File',initialdir=baseDirectory)
-    print(openFile)
+    open_file = filedialog.askopenfilename(title='Open File', initialdir=BASEDIRECTORY)
+    print(open_file)
     mb.askyesno('are you sure?')
     # open the coordinates file. This is just a pair of numbers on each line, x, then y, separated by a single
     # space. The readLines method creates a list of lines from this file, then we split each line into the two
     # fields (split()) and remove the end of line (strip())
-    coordsFile = open(openFile, "r")
-    coordsLines = coordsFile.readlines()
+    coords_file = open(open_file, "r")
+    coords_lines = coords_file.readlines()
 
-    for line in coordsLines:
+    for line in coords_lines:
         coords = line.strip().split(' ')
         # just print the coords value for now.
         print(coords)
         
-    line_number=0
-    for line in coordsLines:
+    line_number = 0
+    for line in coords_lines:
         coords = line.strip().split(' ')
 #        coordList.append([coords[XVALUE], coords[YVALUE], Entry(window), Entry(window), StringVar(), StringVar()])
 #       coordList[line_number][XWIDGET].insert(END, coordList[line_number][XVALUE])
 #       coordList[line_number][YWIDGET].insert(END, coordList[line_number]
         line_number += 1
+
 
 #
 # display_points takes the list of points in a PointsList object and displays them in the GUI. The display is a
@@ -432,7 +430,7 @@ def open_pressed():
 # widgets already there. This just keeps things clean, because we create new ones every time we display a
 # new point list.
 #
-def display_points(lst = PointsList):
+def display_points(lst=PointsList):
     # !!! placeholder code. Replace with gui placement code
     for thing in lst.points:
         print(thing)
@@ -447,17 +445,31 @@ def save_pressed():
     save_file = filedialog.asksaveasfile(title='Open File')
     print(save_file)
 
+
 def save_as_pressed():
     print("Save As button")
 
 
+def addpoint_pressed():
+    print("Add Point button")
+
+
+def deletepoint_pressed():
+    plist.delete_point(plist.row_selected)
+    print("Delete Point button")
+
+
 def gen_gcode_pressed():
-    print("Gen Gcode button")
+    print("Points for GCode")
+    print("row_selected: " + str(plist.row_selected))
+    for ptindex in range(0, len(plist.points)):
+        print(plist.read_point(ptindex))
 
 
 def exit_pressed():
     print("Exit button. Clean up has to happen here.")
     clean_up_and_exit()
+
 
 def abs_rel_select_var_changed(*args):
     print("Absolute/Relative Menu Changed")
@@ -477,14 +489,16 @@ def clean_up_and_exit():
     print("cleanup and exit called")
     window.destroy()
 
+
 def on_closing():
     print("on_closing called")
     if mb.askokcancel("Quit", "Do you want to quit?"):
         clean_up_and_exit()
 
-coordList = []
 
-# coordList.append([])
+coord_list = []
+
+# coord_list.append([])
 
 # gcodeFile = open(gcodeFileName, "w")
 
@@ -499,7 +513,7 @@ s.configure('window.TFrame', font=('Helvetica', 30))
 window.title('Spot Drilling Tool')
 
 menu_bar = Menu(window)
-filemenu = Menu(menu_bar, tearoff=0)
+filemenu = Menu(menu_bar, tearoff=1)
 filemenu.add_command(label="New", command=new_pressed)
 filemenu.add_command(label="Open", command=open_pressed)
 filemenu.add_command(label="Save", command=save_pressed)
@@ -507,6 +521,10 @@ filemenu.add_command(label="Save as...", command=save_as_pressed)
 filemenu.add_command(label="Write GCode", command=gen_gcode_pressed)
 filemenu.add_command(label="Exit", command=exit_pressed)
 menu_bar.add_cascade(label="File", menu=filemenu)
+editmenu = Menu(menu_bar, tearoff=1)
+editmenu.add_command(label="Add Point", command=addpoint_pressed)
+editmenu.add_command(label="Delete Point", command=deletepoint_pressed)
+menu_bar.add_cascade(label="Edit", menu=editmenu)
 
 #
 # Create the GUI widgets
@@ -525,14 +543,13 @@ depth_entry.bind('<FocusOut>', check_if_num)
 plunge_entry = Entry(window)
 plunge_entry.bind('<FocusOut>', check_if_num)
 
-add_button = Button(window, text = "Add Point", command = add_button_pressed)
 
 x_text = StringVar()
 x_label = Label(window, textvariable=x_text, font=('Helvetica', 12))
 x_text.set('    X    ')
 
 y_text = StringVar()
-y_label = Label(window, textvariable=y_text, font=('Helvetica, 12'))
+y_label = Label(window, textvariable=y_text, font='Helvetica, 12')
 y_text.set('    Y    ')
 
 inch_mm_select_var = StringVar(window)
@@ -554,17 +571,16 @@ depth_entry.grid(        row=1, column=0, padx=4, pady=0)
 plunge_entry.grid(       row=1, column=1, padx=4, pady=0)
 x_label.grid(            row=2, column=0, padx=4, pady=0)
 y_label.grid(            row=2, column=1, padx=4, pady=0)
-add_button.grid(         row=0, column=2, padx=4, pady=4)
 inch_mm_select_menu.grid(row=1, column=2, padx=4, pady=4, sticky=W)
 abs_rel_select_menu.grid(row=2, column=2, padx=4, pady=4, sticky=W)
 
 # create a list for each coordinate pair consisting of the value of X, the value of Y, and two tk
 # entry widgets. The widgets will be displayed in the GUI window. Each of these coordinate pair lists
-# will be appended to the coordList, previously initialized as an empty list, resulting in a list of
+# will be appended to the coord_list, previously initialized as an empty list, resulting in a list of
 # coordinate pair lists.
 #
 
-# print(coordList)  # debug temp
+# print(coord_list)  # debug temp
 
 
 # Start the GUI main loop
