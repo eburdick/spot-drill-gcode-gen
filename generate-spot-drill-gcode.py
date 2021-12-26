@@ -146,13 +146,57 @@
 # needs to be updated to re-create all of the check buttons beyond the deleted one so that
 # the callback gets the right index for selection. Otherwise everything is off by one after
 # a delete because the pragma remembers its original index.
+#
+# ----2021-12-22 11 pm
+# debugging the delete line function. The problem is that the command functions in the checkboxes
+# beyond the deleted line have the wrong index. I tried creating a new checkbox for each of
+# these, but it is not working. It dawned on me that what I really need to do is move all of
+# these checkboxes down one position in the list, then they will be in the correct physical
+# position. For example, if I delete line 1, then the new line 1 will now have a checkbox
+# that thinks it is in line 2. If I copy the line 1 checkbox to line 2, it should be right.
+# but I have to do this before I actually delete line 1. But the old line 2 checkbox also
+# has to be copied to the old line 3, and so on, so this copy should be done backward order
+# from the last line to the line after the deleted one. Maybe the whole operation should be
+# done in this order and stopped when the target line is deleted. I'll look at this when I get
+# back to this.
+#
+# ----2021-12-24 10 pm
+# finished re-doing delete line function. The new approach was actually easy. Also added a test
+# to do nothing if nothing is selected. Implemented add point gui function. Just one line of
+# code added. Researched binding keys to the entry widgets, especially the <Return> key. Not sure
+# what I am going to do here, but probably make <Return> do the same thing as tab within the
+# coordinate entry area. Tab progression is based on "stacking Order," which can apparently
+# be changed using the lift() method to move a widget up in the stack. Definately need to do
+# this to get the points in the right order for the tab key. Another thing to explore
+# is <<next window>> and event_generate
+#
+# ----2021-12-25 11:30 pm
+# Added move up and move down buttons with tooltips. To get the tooltips, I had to import the
+# tkinter.tix module to get the Balloon object, but that broke the option menu calls, because
+# tix has and incompatible object of the same name. Some reading told me that importing
+# tkinter with from tkinter import * is not really the right way to do it, and it is better
+# to use "import tkinter as tk," and "import tkinter.tix as tix." The allows you to specify which
+# module you want to use for each object. That meant I had to prefix all tkinter stuff with tk.,
+# and all tix stuff with tix., but that was not hard. I found some wierdness with the grid
+# geometry manager that caused widgets to move around as other widgets were removed and added
+# from the grid, and it resulted in doing an add point operation placing the line in a visually
+# wrong place. I fixed this by creating a frame for the buttons and option menues on the right
+# side, so they use that frame's grid instead of the main window's grid. The frame is placed with
+# as rowspan so that it takes up multiple grid positions on the main window grid.
+#
+# Next, implement the move up and move down keys, which just involves swapping X and Y values.
+# pretty simple. Also, I want to move Add Point and Delete Point to the button frame so they
+# are easily accessible without the pulldown. After that, I need to implement all of the file
+# stuff, including gcode generation.
 
 import numexpr                       # for allowing numeric expressions in coordinate fields
-from tkinter import *                # GUI stuff
+import tkinter as tk
+import tkinter.tix as tix
+#from tkinter import *                # GUI stuff
 from tkinter import ttk              # more widgets
-# from tkinter.scrolledtext import ScrolledText  # not sure why we need to import a module for scrolled text
 from tkinter import filedialog
 from tkinter import messagebox as mb
+from tkinter import font
 
 # Point index constants. A point is a list of values with indices defined by these constants.
 POINTNUMBER = 0
@@ -169,9 +213,10 @@ SELECTBOXCOLUMN = 2
 
 POINTROWOFFSET = 3  # starting row of points list in the gui
 BASEDIRECTORY = 'C:/development/python/PycharmProjects/spot-drill-gcode-gen'
-window = Tk()
+window = tix.Tk()
  
- 
+fonts = sorted(list(font.families()))
+print(fonts)
 
 #
 # Check that the text in an input widget is a number. If not, turn the widget
@@ -224,16 +269,16 @@ class PointsList:
         #
         # Create the entry widgets for this point
         #
-        xentry = Entry(window)
+        xentry = tk.Entry(window)
         xentry.insert(0, x)
-        yentry = Entry(window)
+        yentry = tk.Entry(window)
         yentry.insert(0, y)
-        checkvar = BooleanVar()
+        checkvar = tk.BooleanVar()
         # create the check button for this point. Its state change callback passes the index
         # of this point, which will be used in the selection code.
         # This is implemented as an inline (lambda) function that calls the callback
         # with the argument.
-        check_button = Checkbutton(window, variable=checkvar, command=lambda: check_select_change(index, checkvar))
+        check_button = tk.Checkbutton(window, variable=checkvar, command=lambda: check_select_change(index, checkvar))
 
         #
         # append the point as a list to the end of the points list
@@ -246,9 +291,11 @@ class PointsList:
         #
         # place entry widgets and check button on the grid
         #
+        print("placing point. Row = " + str(self.point_count+POINTROWOFFSET))
+
         self.points[index][XWIDGET].grid(row=self.point_count+POINTROWOFFSET, column=XCOLUMN, padx=4, pady=0)
         self.points[index][YWIDGET].grid(row=self.point_count+POINTROWOFFSET, column=YCOLUMN, padx=4, pady=0)
-        self.points[index][CHECKBUTTON].grid(row=self.point_count+POINTROWOFFSET, column=SELECTBOXCOLUMN, sticky=W)
+        self.points[index][CHECKBUTTON].grid(row=self.point_count+POINTROWOFFSET, column=SELECTBOXCOLUMN, sticky=tk.W)
         #
         # set up event callback for entry widget loss of focus. This is so we can check whether the text
         # in the widget is a valid number
@@ -289,31 +336,38 @@ class PointsList:
 
     def delete_point(self, ptnum):
         #
+        # Check if any points are selected. If not, then return without doing anything
+        #
+        if self.row_selected == NONESELECTED:
+            return
+        #
         # Clear the points display from the gui
         #
         self.clear_points_from_grid()
         #
-        # loop through the points until the point number to be removed is encountered. At that point,
-        # the point is removed from the points list, and point_count is deleted. Also, the line number
-        # offset is set to -1 so that all following points will be numbered one less.
+        # Since we are deleting a point, all points after it need to appear one lower in the list, thus
+        # higher in the physical window. This means we want to change the index number of those points
+        # to be one less, and associate the selection check button for each physical row with the point
+        # that moves to that row. In the code, the easiest way to do this is to start at the end of the
+        # list and work backward until we reach the point to be deleted. A special case is when the last
+        # point is the one being deleted, in which case we just delete that point and return.
         #
-        line_number_offset = 0
-        i = 0
-        while i < len(self.points):
-            if self.points[i][POINTNUMBER] == ptnum:
-                # The point number of the point in the list matches the target point number. Delete the
-                # point and set the index_offset to -1. The will be be used to decrement the line number
-                # of subsequent lines. We do not increment the list index here because the next point will
-                # take the place of this one after it is deleted.
-                del self.points[i]
+        # Traverse the points list in reverse
+        for pt in reversed(self.points):
+            # If this point is the point to be deleted, just delete it and decrement the point count.
+            # after this, we are done, so we break out of the loop.
+            if ptnum == pt[POINTNUMBER]:
+                del self.points[ptnum]
                 self.point_count -= 1
-                line_number_offset = -1
+                break
+            # If this point is not the point to be deleted, move the checkbutton from the adjacent
+            # lower point to this one, and decrement the point number so that it is right after
+            # a lower point is deleted.
             else:
-                # The point number of the point in the list does not match the target point number.
-                # Adjust the line number by adding line_number_offset, which starts at zero and gets
-                # set to -1 after the target point is deleted.
-                self.points[i][POINTNUMBER] += line_number_offset
-                i += 1
+                idx = pt[POINTNUMBER]
+                self.points[idx][CHECKBUTTON] = self.points[idx-1][CHECKBUTTON]
+                self.points[idx][POINTNUMBER] = idx-1
+                pt[CHECKBUTTON].deselect()
         #
         # Now, with the target point gone, we re-display the remaining points.
         #
@@ -340,7 +394,7 @@ class PointsList:
         for placeindex in range(0, len(self.points)):
             self.points[placeindex][XWIDGET].grid(row=placeindex + POINTROWOFFSET, column=XCOLUMN, padx=4, pady=0)
             self.points[placeindex][YWIDGET].grid(row=placeindex + POINTROWOFFSET, column=YCOLUMN, padx=4, pady=0)
-            self.points[placeindex][CHECKBUTTON].grid(row=placeindex + POINTROWOFFSET, column=SELECTBOXCOLUMN, sticky=W)
+            self.points[placeindex][CHECKBUTTON].grid(row=placeindex + POINTROWOFFSET, column=SELECTBOXCOLUMN, sticky=tk.W)
         self.row_selected = NONESELECTED
 
 
@@ -364,26 +418,9 @@ for point in plist.points:
 print('appending point')
 myid = plist.append_point(7.0, 8.0)
 for point in plist.points:
-    print(plist.points.index(point))
     print(point)
 
-# print('deleting first point')
-# myid = plist.delete_point(0)
-# for point in plist.points:
-#     print(point)
-# print('deleting last point')
-# myid = plist.delete_point(2)
-# for point in plist.points:
-#     print(point)
-
 # end of class PointsList test code
-
-# test code for type conversion
-test = float(numexpr.evaluate('.5+1'))
-print(test)
-print(test*2.54)
-print(type(test))
-# end type conversion test code
 
 
 
@@ -424,18 +461,6 @@ def open_pressed():
         line_number += 1
 
 
-#
-# display_points takes the list of points in a PointsList object and displays them in the GUI. The display is a
-# column of pairs of Entry widgets with a line for each list element. To start, we delete all of the Entry
-# widgets already there. This just keeps things clean, because we create new ones every time we display a
-# new point list.
-#
-def display_points(lst=PointsList):
-    # !!! placeholder code. Replace with gui placement code
-    for thing in lst.points:
-        print(thing)
-
-
 def new_pressed():
     print("New button")
 
@@ -449,14 +474,19 @@ def save_pressed():
 def save_as_pressed():
     print("Save As button")
 
-
+#
+# when Add Point is pressed, we add a point at the end of the points list by calling
+#
 def addpoint_pressed():
     print("Add Point button")
+    myid = plist.append_point('', '')
 
 
 def deletepoint_pressed():
+    print("Delete Point button, row_selected = " + str(plist.row_selected))
     plist.delete_point(plist.row_selected)
-    print("Delete Point button")
+    for point in plist.points:
+        print(point)
 
 
 def gen_gcode_pressed():
@@ -484,6 +514,11 @@ def inch_mm_select_var_changed(*args):
 def add_button_pressed():
     print("Add Point button")
 
+def up_button_pressed():
+    print("up button pressed")
+
+def down_button_pressed():
+    print("down button pressed")
 
 def clean_up_and_exit():
     print("cleanup and exit called")
@@ -512,8 +547,8 @@ s.configure('window.TFrame', font=('Helvetica', 30))
 #
 window.title('Spot Drilling Tool')
 
-menu_bar = Menu(window)
-filemenu = Menu(menu_bar, tearoff=1)
+menu_bar = tk.Menu(window)
+filemenu = tk.Menu(menu_bar, tearoff=1)
 filemenu.add_command(label="New", command=new_pressed)
 filemenu.add_command(label="Open", command=open_pressed)
 filemenu.add_command(label="Save", command=save_pressed)
@@ -521,7 +556,7 @@ filemenu.add_command(label="Save as...", command=save_as_pressed)
 filemenu.add_command(label="Write GCode", command=gen_gcode_pressed)
 filemenu.add_command(label="Exit", command=exit_pressed)
 menu_bar.add_cascade(label="File", menu=filemenu)
-editmenu = Menu(menu_bar, tearoff=1)
+editmenu = tk.Menu(menu_bar, tearoff=1)
 editmenu.add_command(label="Add Point", command=addpoint_pressed)
 editmenu.add_command(label="Delete Point", command=deletepoint_pressed)
 menu_bar.add_cascade(label="Edit", menu=editmenu)
@@ -529,38 +564,51 @@ menu_bar.add_cascade(label="Edit", menu=editmenu)
 #
 # Create the GUI widgets
 #
-depth_text = StringVar()
-depth_label = Label(window, textvariable=depth_text, font=('Helvetica', 12))
+button_frame = ttk.Frame(window)
+depth_text = tk.StringVar()
+depth_label = tk.Label(window, textvariable=depth_text, font=('Helvetica', 12))
 depth_text.set('Depth')
 
-plunge_text = StringVar()
-plunge_label = Label(window, textvariable=plunge_text, font=('Helvetica', 12))
+plunge_text = tk.StringVar()
+plunge_label = tk.Label(window, textvariable=plunge_text, font=('Helvetica', 12))
 plunge_text.set('Plunge Rate')
 
-depth_entry = Entry(window)
+depth_entry = tk.Entry(window)
 depth_entry.bind('<FocusOut>', check_if_num)
 
-plunge_entry = Entry(window)
+plunge_entry = tk.Entry(window)
 plunge_entry.bind('<FocusOut>', check_if_num)
 
 
-x_text = StringVar()
-x_label = Label(window, textvariable=x_text, font=('Helvetica', 12))
+x_text = tk.StringVar()
+x_label = tk.Label(window, textvariable=x_text, font=('Helvetica', 12))
 x_text.set('    X    ')
 
-y_text = StringVar()
-y_label = Label(window, textvariable=y_text, font='Helvetica, 12')
+# code for sampling fonts
+# up_button = Button(window, text="abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", font='tt-icon-font 12', command=up_button_pressed)
+
+up_tip = tix.Balloon(window)
+up_button = tk.Button(button_frame, text="  k  ", font='tt-icon-font 12', command=up_button_pressed)
+up_tip.bind_widget(up_button,balloonmsg="Swap selected point with the one above it")
+
+down_tip = tix.Balloon(window)
+down_button = tk.Button(button_frame, text="  c  ", font='tt-icon-font 12', command=down_button_pressed)
+down_tip.bind_widget(down_button,balloonmsg="Swap selected point with the one below it")
+
+y_text = tk.StringVar()
+y_label = tk.Label(window, textvariable=y_text, font='Helvetica, 12')
 y_text.set('    Y    ')
 
-inch_mm_select_var = StringVar(window)
+inch_mm_select_var = tk.StringVar(button_frame)
 inch_mm_select_var.set("Unit: Inches")
-inch_mm_select_menu = OptionMenu(window, inch_mm_select_var, 'Unit: Inches', 'Unit: Millimeters')
+inch_mm_select_menu = tk.OptionMenu(button_frame, inch_mm_select_var, 'Unit: Inches', 'Unit: Millimeters')
 inch_mm_select_var.trace('w', inch_mm_select_var_changed)
 
-abs_rel_select_var = StringVar(window)
+abs_rel_select_var = tk.StringVar(button_frame)
 abs_rel_select_var.set("Mode: Absolute")
-abs_rel_select_menu = OptionMenu(window, abs_rel_select_var, 'Mode: Absolute', 'Mode: Relative')
+abs_rel_select_menu = tk.OptionMenu(button_frame, abs_rel_select_var, 'Mode: Absolute', 'Mode: Relative')
 abs_rel_select_var.trace('w', abs_rel_select_var_changed)
+
 
 #
 # Place the widgets in the window
@@ -571,8 +619,11 @@ depth_entry.grid(        row=1, column=0, padx=4, pady=0)
 plunge_entry.grid(       row=1, column=1, padx=4, pady=0)
 x_label.grid(            row=2, column=0, padx=4, pady=0)
 y_label.grid(            row=2, column=1, padx=4, pady=0)
-inch_mm_select_menu.grid(row=1, column=2, padx=4, pady=4, sticky=W)
-abs_rel_select_menu.grid(row=2, column=2, padx=4, pady=4, sticky=W)
+button_frame.grid(       row=0, column=3, rowspan=6)
+inch_mm_select_menu.grid(row=0, column=0, padx=0, pady=4, sticky=tk.W)
+abs_rel_select_menu.grid(row=1, column=0, padx=0, pady=4, sticky=tk.W)
+up_button.grid          (row=2, column=0, padx=0, pady=0, sticky=tk.W)
+down_button.grid        (row=3, column=0, padx=0, pady=0, sticky=tk.W)
 
 # create a list for each coordinate pair consisting of the value of X, the value of Y, and two tk
 # entry widgets. The widgets will be displayed in the GUI window. Each of these coordinate pair lists
