@@ -24,31 +24,19 @@
 #         Exit
 #             Exits program. If there are unsaved changes, a warning box pops up, giving user
 #             the option to save or save as.
-#     Edit menu
-#         add point
-#             Adds a point at the end of the list
-#         add point before
-#             Add a point before the selected point line
-#         add point after
-#             Add a point after the selected point line
-#         delete
-#             Deletes the selected point line
-#         move up
-#             Moves selected point line above the line above it
-#         move down
-#             Move the selected point line below the line following it
+#
+# User data inputs...
 #     Depth Input
 #         specifies how deep to drill. Default .1 inch
 #     Plunge Rate Input
 #         specified how fast to move the z axis during the cuts. Default: 1.5 inches/minute
-#     Add Point
-#         adds coordinate input row with blank values.
 #     Coordinate Inputs
 #         arranged in rows of two each, this is where the user enters X and Y coordinates.
 #         The user can enter a number (float), or an expression that evaluates to a number.
-#         Each point line has a check button next to it. If this is checked, then an edit
-#         command, insert before, insert after, delete, move up or move down will apply to
-#         the corresponding point line.
+#         Each point line has a radio box style check button next to it. If a line is checked,
+#         then delete, move up or move down will apply to the corresponding point row.
+#
+# Data control buttons and menus...
 #     Inch/mm menu.
 #         Defaults to Inch. If it is changed while there are points in place, they are converted.
 #         For example, 1 inch becomes 25.4 mm when switching from inch to mm
@@ -58,14 +46,34 @@
 #         2,2, absolute mode with show 2,2 for that point, and relative with show 1,1 for that point. If
 #         points are already in place, switching between the two will make the appropriate changes.
 #         !!! consider having a relative mode where each point is relative to the previous point !!!
+#     Add Point
+#         Adds a blank point line at the end of the list
+#     ^ (move up)
+#         Moves selected point line up, and the line above it down (swap lines). Selection stays
+#         with the moved line.
+#     v (move down)
+#         Move the selected point down, and the line below it up   (swap lines). Selection stays
+#         with the moved line.
+#     Delete Point
+#         Deletes the selected point line
 #
-#           Depth     Plunge Rate [Add Point]
-#         __________  ___________ [Unit: Inches -]
-#             X            Y      [Mode: Absolute -]
-#         __________  ___________ [ ]
-#         __________  ___________ [ ]
-#         __________  ___________ [ ]
-#         __________  ___________ [ ]
+# Window layout...
+#         File
+#            ----------
+#            New
+#            Open
+#            Save
+#            Save as...
+#            Write GCode
+#            Exit
+#
+#           Depth     Plunge Rate
+#         __________  ___________     [Unit: Inches -]
+#             X            Y          [Mode: Absolute -]
+#         __________  ___________ [ ] [Add Point]
+#         __________  ___________ [ ] [    ^    ]
+#         __________  ___________ [ ] [    v    ]
+#         __________  ___________ [ ] [Delete Point]
 #
 # Usage Models...
 #     Edit existing points list
@@ -91,6 +99,26 @@
 #     save to a file and when we process into a gcode file. We could also check when an entry
 #     widget loses focus, like when we hit tab to go to the next field.
 #
+# File formats...
+#     config file
+#         line 1: default path
+#         line 2: last file name as name.ext
+#
+#     data file
+#         line 1: coordinate mode abs, rel, relpt1
+#             abs means absolute values relative to the origin
+#             rel means each point is relative to the previous point
+#             relpt1 means the first point is absolute and all others are relative to it.
+#         line 2: units mm, inch
+#             This just sets the units in the gcode
+#         line 3: plunge rate inches per minute or mm per minute, depending on units
+#         line 4: hole depth in selected units
+#         line 5 to end: coordinate pairs X Y. Floating point in selected units.
+#
+#      gcode file (ext = .nc)
+#         TBD
+#
+#
 # Revison History:
 #
 # ----2021-11-28 10AM
@@ -112,7 +140,7 @@
 #
 # At this point, the selection state is
 # in the PointsList class in the form of a member variable row_selected to indicate which
-# row is selected. 0 means none. The check button widget for each point lives in the point data
+# row is selected. -1 means none. The check button widget for each point lives in the point data
 # structure, which is a list of widgets. The value changed callback for those check box widgets
 # lives outside of the class, but it is just a utility routine, so that seems fine. An alternative
 # would be to just have the check button widgets live in a parallel array in the gui, but having
@@ -188,12 +216,40 @@
 # pretty simple. Also, I want to move Add Point and Delete Point to the button frame so they
 # are easily accessible without the pulldown. After that, I need to implement all of the file
 # stuff, including gcode generation.
+#
+# ----2021-12-26 10 PM
+# Moved Add Point and Delete Point to the button frame and removed the Edit dropdown menu.
+# Revamped the way I specified fonts by using the font class with decent names. Made all label,
+# button, and selection menus use the same font, called helv12bold in the code. Implemented up
+# and down keys, adding methods to the Pointslist class to do the real work. Modified select_row
+# to force selection of the checkbutton instead of depending on the user click for it. This is
+# needed for moving the selection with the points being moved by the up/down keys.  Modifed
+# # append_point method to select the new point.
+# This completes the basic gui and it is time to move on to functionality, which will probably drive
+# some gui tweaks.
+#
+# Stuff to do:
+#     File/Save: write the current points list to a file. Having a default directory and recording
+#     the current path will have to happen, probably saving in a file for continuity between
+#     program sessions.
+#
+#     File/Save-as: same as save, but prompt for a new file and update current path
+#
+#     Open: Pick a file in the current path, maybe defaulting to the last file opened.
+#
+#     New: Clear the gui and the current file so the user can start a new project.
+#
+# Starting with a config file in the program directory. Check to see if there is one, and if
+# there is none, create it. Defined first cut file formats for config and data files, in initial
+# comment block above
+#
+#
 
-import numexpr                       # for allowing numeric expressions in coordinate fields
+
+import numexpr  # for allowing numeric expressions in coordinate fields
 import tkinter as tk
 import tkinter.tix as tix
-#from tkinter import *                # GUI stuff
-from tkinter import ttk              # more widgets
+from tkinter import ttk  # more widgets
 from tkinter import filedialog
 from tkinter import messagebox as mb
 from tkinter import font
@@ -214,27 +270,12 @@ SELECTBOXCOLUMN = 2
 POINTROWOFFSET = 3  # starting row of points list in the gui
 BASEDIRECTORY = 'C:/development/python/PycharmProjects/spot-drill-gcode-gen'
 window = tix.Tk()
- 
-fonts = sorted(list(font.families()))
-print(fonts)
 
-#
-# Check that the text in an input widget is a number. If not, turn the widget
-# background red and raise a message box.
-#
-def check_if_num(event):
-    widget = event.widget
-    #
-    # attempt to convert the string to a number. If it fails, it will throw a ValueError
-    # exception, which we catch to inform the user by setting the corresponding widget's 
-    # background to red
-    #
-    try:
-        float(widget.get())
-        widget.config(bg="WHITE")
-    except ValueError:
-        widget.config(bg="RED")
-        mb.showerror("error", widget.get() + " is not a number")
+# fonts = sorted(list(font.families()))
+# print(fonts)
+
+
+
 
 
 class PointsList:
@@ -252,6 +293,7 @@ class PointsList:
         self.points = []
         self.point_count = 0
         self.row_selected = NONESELECTED
+
     #
     # Clear the object back to its initial state. Effectively remove all points
     #
@@ -265,7 +307,7 @@ class PointsList:
     #
     def append_point(self, x, y):
         self.point_count += 1
-        index = self.point_count-1
+        index = self.point_count - 1
         #
         # Create the entry widgets for this point
         #
@@ -291,22 +333,23 @@ class PointsList:
         #
         # place entry widgets and check button on the grid
         #
-        print("placing point. Row = " + str(self.point_count+POINTROWOFFSET))
+        print("placing point. Row = " + str(self.point_count + POINTROWOFFSET))
 
-        self.points[index][XWIDGET].grid(row=self.point_count+POINTROWOFFSET, column=XCOLUMN, padx=4, pady=0)
-        self.points[index][YWIDGET].grid(row=self.point_count+POINTROWOFFSET, column=YCOLUMN, padx=4, pady=0)
-        self.points[index][CHECKBUTTON].grid(row=self.point_count+POINTROWOFFSET, column=SELECTBOXCOLUMN, sticky=tk.W)
+        self.points[index][XWIDGET].grid(row=self.point_count + POINTROWOFFSET, column=XCOLUMN, padx=4, pady=0)
+        self.points[index][YWIDGET].grid(row=self.point_count + POINTROWOFFSET, column=YCOLUMN, padx=4, pady=0)
+        self.points[index][CHECKBUTTON].grid(row=self.point_count + POINTROWOFFSET, column=SELECTBOXCOLUMN, sticky=tk.W)
         #
         # set up event callback for entry widget loss of focus. This is so we can check whether the text
         # in the widget is a valid number
         #
         self.points[index][XWIDGET].bind('<FocusOut>', check_if_num)
         self.points[index][YWIDGET].bind('<FocusOut>', check_if_num)
+
         #
-        # set up even callback for
+        # Select the new line
         #
-        return self.point_count
-    
+        self.select_row(index)
+
     # select_row mainly sets member variable row_selected to the specified row number. But it also
     # unchecks the rest of the check buttons. This could be done by just forcing the existing check
     # button to be unchecked, but to make sure we don't miss one, we just uncheck all buttons except
@@ -319,7 +362,9 @@ class PointsList:
         print("old row selected " + str(self.row_selected))
         self.row_selected = NONESELECTED  # preset for the case that no row is selected
         for pt in self.points:
-            if self.points.index(pt) != row:
+            if self.points.index(pt) == row:
+                pt[CHECKBUTTON].select()
+            else:
                 pt[CHECKBUTTON].deselect()
         self.row_selected = row
         print("new row selected " + str(self.row_selected))
@@ -365,16 +410,16 @@ class PointsList:
             # a lower point is deleted.
             else:
                 idx = pt[POINTNUMBER]
-                self.points[idx][CHECKBUTTON] = self.points[idx-1][CHECKBUTTON]
-                self.points[idx][POINTNUMBER] = idx-1
+                self.points[idx][CHECKBUTTON] = self.points[idx - 1][CHECKBUTTON]
+                self.points[idx][POINTNUMBER] = idx - 1
                 pt[CHECKBUTTON].deselect()
         #
         # Now, with the target point gone, we re-display the remaining points.
         #
         self.place_points_on_grid()
-        #if line_number_offset == -1:
+        # if line_number_offset == -1:
         #    return 0
-        #else:
+        # else:
         #    return 1
 
     def read_point(self, ptnum):
@@ -394,35 +439,107 @@ class PointsList:
         for placeindex in range(0, len(self.points)):
             self.points[placeindex][XWIDGET].grid(row=placeindex + POINTROWOFFSET, column=XCOLUMN, padx=4, pady=0)
             self.points[placeindex][YWIDGET].grid(row=placeindex + POINTROWOFFSET, column=YCOLUMN, padx=4, pady=0)
-            self.points[placeindex][CHECKBUTTON].grid(row=placeindex + POINTROWOFFSET, column=SELECTBOXCOLUMN, sticky=tk.W)
+            self.points[placeindex][CHECKBUTTON].grid(row=placeindex + POINTROWOFFSET, column=SELECTBOXCOLUMN,
+                                                      sticky=tk.W)
         self.row_selected = NONESELECTED
 
+    def move_point_forward(self, ptnum):
+        #
+        # Move the target point x and y entry widgets forward in the points list by swapping with the next
+        # point in the list, then select the destination line. This makes it possible to repeatedly move these
+        # values down the list. If this point is already the last one in the list, do nothing
+        #
+        if ptnum == self.point_count-1:
+            return
+        # remove the point lines from the grid
+        self.clear_points_from_grid()
+        # take a snapshot of the x and y widgets on this point
+        xtemp = self.points[ptnum][XWIDGET]
+        ytemp = self.points[ptnum][YWIDGET]
+        # copy the x and y widgets of the next point
+        self.points[ptnum][XWIDGET] = self.points[ptnum+1][XWIDGET]
+        self.points[ptnum][YWIDGET] = self.points[ptnum+1][YWIDGET]
+        # replace the x and y widgets of the next point by the snapshots
+        self.points[ptnum+1][XWIDGET] = xtemp
+        self.points[ptnum+1][YWIDGET] = ytemp
+        # re-display the point lines
+        self.place_points_on_grid()
+        # move the selection to the new position of the moved point
+        self.select_row(ptnum+1)
 
-# Test code for PointList class
+    def move_point_backward(self, ptnum):
+        #
+        # Move the target point x and y entry widgets backward in the points list by swapping with the previous
+        # point in the list, then select the destination line. This makes it possible to repeatedly move these
+        # values up the list. If this point is already the first one in the list, do nothing
+        #
+        if ptnum == 0:
+            return
+        # remove the point lines from the grid
+        self.clear_points_from_grid()
+        # take a snapshot of the x and y widgets on this point
+        xtemp = self.points[ptnum][XWIDGET]
+        ytemp = self.points[ptnum][YWIDGET]
+        # copy the x and y widgets of the previous point
+        self.points[ptnum][XWIDGET] = self.points[ptnum-1][XWIDGET]
+        self.points[ptnum][YWIDGET] = self.points[ptnum-1][YWIDGET]
+        # replace the x and y widgets of the previous point by the snapshots
+        self.points[ptnum-1][XWIDGET] = xtemp
+        self.points[ptnum-1][YWIDGET] = ytemp
+        # re-display the point lines
+        self.place_points_on_grid()
+        # move the selection to the new position of the moved point
+        self.select_row(ptnum-1)
+# end of PointList class
+
+
+# global working points list object
 plist = PointsList()
+
+
+# utility functions
+#
+# Check that the text in an input widget is a number. If not, turn the widget
+# background red and raise a message box.
+#
+def check_if_num(event):
+    widget = event.widget
+    #
+    # attempt to convert the string to a number. If it fails, it will throw a ValueError
+    # exception, which we catch to inform the user by setting the corresponding widget's
+    # background to red
+    #
+    try:
+        float(widget.get())
+        widget.config(bg="WHITE")
+    except ValueError:
+        widget.config(bg="RED")
+        mb.showerror("error", widget.get() + " is not a number")
+
+
+# Test code for PointList class and initial points for testing.
 print('initial point list')
 for point in plist.points:
     print(point)
 print('appending point')
-myid = plist.append_point('', 2.0)
+plist.append_point('', 2.0)
 for point in plist.points:
     print(point)
 print('appending point')
-myid = plist.append_point(3.0, 4.0)
+plist.append_point(3.0, 4.0)
 for point in plist.points:
     print(point)
 print('appending point')
-myid = plist.append_point(5.0, 6.0)
+plist.append_point(5.0, 6.0)
 for point in plist.points:
     print(point)
 print('appending point')
-myid = plist.append_point(7.0, 8.0)
+plist.append_point(7.0, 8.0)
 for point in plist.points:
     print(point)
-
 # end of class PointsList test code
 
-
+# Gui callbacks (command functions)
 
 def check_select_change(line, val):
     print("check select changed...index: " + str(line))
@@ -431,8 +548,7 @@ def check_select_change(line, val):
         plist.select_row(line)
     else:
         plist.deselect_row(line)
-    # for idx in range(0, len(plist.points)):
-    #     print(plist.read_point(idx))
+
 
 def open_pressed():
     # Open means read a coordinates file and make the points in that file the current points in 
@@ -451,13 +567,13 @@ def open_pressed():
         coords = line.strip().split(' ')
         # just print the coords value for now.
         print(coords)
-        
+
     line_number = 0
     for line in coords_lines:
         coords = line.strip().split(' ')
-#        coordList.append([coords[XVALUE], coords[YVALUE], Entry(window), Entry(window), StringVar(), StringVar()])
-#       coordList[line_number][XWIDGET].insert(END, coordList[line_number][XVALUE])
-#       coordList[line_number][YWIDGET].insert(END, coordList[line_number]
+        #        coordList.append([coords[XVALUE], coords[YVALUE], Entry(window), Entry(window), StringVar(), StringVar()])
+        #       coordList[line_number][XWIDGET].insert(END, coordList[line_number][XVALUE])
+        #       coordList[line_number][YWIDGET].insert(END, coordList[line_number]
         line_number += 1
 
 
@@ -474,19 +590,20 @@ def save_pressed():
 def save_as_pressed():
     print("Save As button")
 
+
 #
 # when Add Point is pressed, we add a point at the end of the points list by calling
 #
 def addpoint_pressed():
     print("Add Point button")
-    myid = plist.append_point('', '')
+    plist.append_point('', '')
 
 
 def deletepoint_pressed():
     print("Delete Point button, row_selected = " + str(plist.row_selected))
     plist.delete_point(plist.row_selected)
-    for point in plist.points:
-        print(point)
+    for delpoint in plist.points:
+        print(delpoint)
 
 
 def gen_gcode_pressed():
@@ -514,11 +631,16 @@ def inch_mm_select_var_changed(*args):
 def add_button_pressed():
     print("Add Point button")
 
+
 def up_button_pressed():
     print("up button pressed")
+    plist.move_point_backward(plist.row_selected)
+
 
 def down_button_pressed():
     print("down button pressed")
+    plist.move_point_forward(plist.row_selected)
+
 
 def clean_up_and_exit():
     print("cleanup and exit called")
@@ -556,21 +678,24 @@ filemenu.add_command(label="Save as...", command=save_as_pressed)
 filemenu.add_command(label="Write GCode", command=gen_gcode_pressed)
 filemenu.add_command(label="Exit", command=exit_pressed)
 menu_bar.add_cascade(label="File", menu=filemenu)
-editmenu = tk.Menu(menu_bar, tearoff=1)
-editmenu.add_command(label="Add Point", command=addpoint_pressed)
-editmenu.add_command(label="Delete Point", command=deletepoint_pressed)
-menu_bar.add_cascade(label="Edit", menu=editmenu)
+# editmenu = tk.Menu(menu_bar, tearoff=1)
+# editmenu.add_command(label="Add Point", command=addpoint_pressed)
+# editmenu.add_command(label="Delete Point", command=deletepoint_pressed)
+# menu_bar.add_cascade(label="Edit", menu=editmenu)
 
 #
 # Create the GUI widgets
 #
+helv12bold = tk.font.Font(family='Helvetica', size=12, weight='bold')
+arrowfont = tk.font.Font(family='tt-icon-font', size=12, weight='bold')
+
 button_frame = ttk.Frame(window)
 depth_text = tk.StringVar()
-depth_label = tk.Label(window, textvariable=depth_text, font=('Helvetica', 12))
+depth_label = tk.Label(window, textvariable=depth_text, font=helv12bold)
 depth_text.set('Depth')
 
 plunge_text = tk.StringVar()
-plunge_label = tk.Label(window, textvariable=plunge_text, font=('Helvetica', 12))
+plunge_label = tk.Label(window, textvariable=plunge_text, font=helv12bold)
 plunge_text.set('Plunge Rate')
 
 depth_entry = tk.Entry(window)
@@ -579,52 +704,62 @@ depth_entry.bind('<FocusOut>', check_if_num)
 plunge_entry = tk.Entry(window)
 plunge_entry.bind('<FocusOut>', check_if_num)
 
+# code for sampling fonts up_button = Button(window,
+# text="abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", font='tt-icon-font 12',
+# command=up_button_pressed)
+
+up_tip = tix.Balloon(button_frame)
+up_button = tk.Button(button_frame, text="  k  ", font=arrowfont, command=up_button_pressed)
+up_tip.bind_widget(up_button, balloonmsg="Swap selected point with the one above it")
+
+down_tip = tix.Balloon(button_frame)
+down_button = tk.Button(button_frame, text="  c  ", font=arrowfont, command=down_button_pressed)
+down_tip.bind_widget(down_button, balloonmsg="Swap selected point with the one below it")
+
+addpoint_tip = tix.Balloon(button_frame)
+addpoint_button = tk.Button(button_frame, text="Add Point", font=helv12bold, command=addpoint_pressed)
+addpoint_tip.bind_widget(addpoint_button, balloonmsg="Add a point at the end")
+
+delpoint_tip = tix.Balloon(button_frame)
+delpoint_button = tk.Button(button_frame, text="Delete Point", font=helv12bold, command=deletepoint_pressed)
+delpoint_tip.bind_widget(delpoint_button, balloonmsg="Delete selected point")
 
 x_text = tk.StringVar()
-x_label = tk.Label(window, textvariable=x_text, font=('Helvetica', 12))
+x_label = tk.Label(window, textvariable=x_text, font=helv12bold)
 x_text.set('    X    ')
 
-# code for sampling fonts
-# up_button = Button(window, text="abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", font='tt-icon-font 12', command=up_button_pressed)
-
-up_tip = tix.Balloon(window)
-up_button = tk.Button(button_frame, text="  k  ", font='tt-icon-font 12', command=up_button_pressed)
-up_tip.bind_widget(up_button,balloonmsg="Swap selected point with the one above it")
-
-down_tip = tix.Balloon(window)
-down_button = tk.Button(button_frame, text="  c  ", font='tt-icon-font 12', command=down_button_pressed)
-down_tip.bind_widget(down_button,balloonmsg="Swap selected point with the one below it")
-
 y_text = tk.StringVar()
-y_label = tk.Label(window, textvariable=y_text, font='Helvetica, 12')
+y_label = tk.Label(window, textvariable=y_text, font=helv12bold)
 y_text.set('    Y    ')
 
 inch_mm_select_var = tk.StringVar(button_frame)
 inch_mm_select_var.set("Unit: Inches")
 inch_mm_select_menu = tk.OptionMenu(button_frame, inch_mm_select_var, 'Unit: Inches', 'Unit: Millimeters')
+inch_mm_select_menu.config(font=helv12bold)
 inch_mm_select_var.trace('w', inch_mm_select_var_changed)
 
 abs_rel_select_var = tk.StringVar(button_frame)
 abs_rel_select_var.set("Mode: Absolute")
 abs_rel_select_menu = tk.OptionMenu(button_frame, abs_rel_select_var, 'Mode: Absolute', 'Mode: Relative')
+abs_rel_select_menu.config(font=helv12bold)
 abs_rel_select_var.trace('w', abs_rel_select_var_changed)
-
 
 #
 # Place the widgets in the window
 #
-depth_label.grid(        row=0, column=0, padx=4, pady=0)
-plunge_label.grid(       row=0, column=1, padx=4, pady=4)
-depth_entry.grid(        row=1, column=0, padx=4, pady=0)
-plunge_entry.grid(       row=1, column=1, padx=4, pady=0)
-x_label.grid(            row=2, column=0, padx=4, pady=0)
-y_label.grid(            row=2, column=1, padx=4, pady=0)
-button_frame.grid(       row=0, column=3, rowspan=6)
+depth_label.grid(row=0, column=0, padx=4, pady=0)
+plunge_label.grid(row=0, column=1, padx=4, pady=4)
+depth_entry.grid(row=1, column=0, padx=4, pady=0)
+plunge_entry.grid(row=1, column=1, padx=4, pady=0)
+x_label.grid(row=2, column=0, padx=4, pady=0)
+y_label.grid(row=2, column=1, padx=4, pady=0)
+button_frame.grid(row=0, column=3, rowspan=10)
 inch_mm_select_menu.grid(row=0, column=0, padx=0, pady=4, sticky=tk.W)
 abs_rel_select_menu.grid(row=1, column=0, padx=0, pady=4, sticky=tk.W)
-up_button.grid          (row=2, column=0, padx=0, pady=0, sticky=tk.W)
-down_button.grid        (row=3, column=0, padx=0, pady=0, sticky=tk.W)
-
+addpoint_button.grid(row=2, column=0, sticky=tk.W)
+up_button.grid(row=3, column=0, sticky=tk.W)
+down_button.grid(row=4, column=0, sticky=tk.W)
+delpoint_button.grid(row=5, column=0, sticky=tk.W)
 # create a list for each coordinate pair consisting of the value of X, the value of Y, and two tk
 # entry widgets. The widgets will be displayed in the GUI window. Each of these coordinate pair lists
 # will be appended to the coord_list, previously initialized as an empty list, resulting in a list of
