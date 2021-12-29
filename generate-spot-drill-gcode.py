@@ -243,16 +243,23 @@
 # there is none, create it. Defined first cut file formats for config and data files, in initial
 # comment block above
 #
+# ----2021/12/29 12:13 AM
 #
+# Added code for reading/creating the config file. Started on code for SaveAs, which uses the config
+# file. The initial path stuff is not working right. Probably something about the backslashes having
+# to be doubled. Need to figure that out. Brute force would be to turn them all into forward slashes
+# which Python should deal with fine.
 
 
-import numexpr  # for allowing numeric expressions in coordinate fields
+import numexpr as ne  # for allowing numeric expressions in coordinate fields
 import tkinter as tk
 import tkinter.tix as tix
 from tkinter import ttk  # more widgets
 from tkinter import filedialog
 from tkinter import messagebox as mb
 from tkinter import font
+import os
+import os.path
 
 # Point index constants. A point is a list of values with indices defined by these constants.
 POINTNUMBER = 0
@@ -268,13 +275,16 @@ YCOLUMN = 1
 SELECTBOXCOLUMN = 2
 
 POINTROWOFFSET = 3  # starting row of points list in the gui
-BASEDIRECTORY = 'C:/development/python/PycharmProjects/spot-drill-gcode-gen'
-window = tix.Tk()
+BASEDIRECTORY = os.getcwd()
+DEFAULTDATAFILENAME = "generate_spot_drill_data_file"
+DEFAULTGCODEFILENAME = "gcode.nc"
+data_file_name = ""
+gcode_file_name = ""
+
+
 
 # fonts = sorted(list(font.families()))
 # print(fonts)
-
-
 
 
 
@@ -493,51 +503,47 @@ class PointsList:
 # end of PointList class
 
 
-# global working points list object
-plist = PointsList()
-
-
 # utility functions
 #
-# Check that the text in an input widget is a number. If not, turn the widget
+# Check that the text in an input widget is an expression that evaluates to a number. If not, turn the widget
 # background red and raise a message box.
 #
+# noinspection PyUnboundLocalVariable
 def check_if_num(event):
     widget = event.widget
     #
-    # attempt to convert the string to a number. If it fails, it will throw a ValueError
-    # exception, which we catch to inform the user by setting the corresponding widget's
-    # background to red
+    # attempt to evaluate the string as a python language numeric expression. If it fails, it
+    # will throw one of a number of exceptions, which we catch and inform the user, setting
+    # the widget background color to red.
+    #
+    # Note: the ne.evaluate function compiles the argument as a Python language expression,
+    # and can encounter a number of errors during compilation or execution of that code. It executes
+    # the expression as written, so it will execute, for example, 1000**100 differently from 1000.**100,
+    # where the integer expression will overflow, and the floating point one will not. Practically,
+    # though, the expressions used in this application will be simple ones that don't generate such
+    # huge numbers.
     #
     try:
-        float(widget.get())
+        widget_value = str(widget.get()).strip()
+        exprval = ne.evaluate(widget_value)
+        exprval = float(exprval)
+        print(exprval)
         widget.config(bg="WHITE")
-    except ValueError:
+    except KeyError:
         widget.config(bg="RED")
-        mb.showerror("error", widget.get() + " is not a number")
-
-
-# Test code for PointList class and initial points for testing.
-print('initial point list')
-for point in plist.points:
-    print(point)
-print('appending point')
-plist.append_point('', 2.0)
-for point in plist.points:
-    print(point)
-print('appending point')
-plist.append_point(3.0, 4.0)
-for point in plist.points:
-    print(point)
-print('appending point')
-plist.append_point(5.0, 6.0)
-for point in plist.points:
-    print(point)
-print('appending point')
-plist.append_point(7.0, 8.0)
-for point in plist.points:
-    print(point)
-# end of class PointsList test code
+        mb.showerror("error", widget_value + " does not evaluate to a number")
+    except SyntaxError:
+        widget.config(bg="RED")
+        mb.showerror("error", widget_value + " does not evaluate to a number")
+    except ZeroDivisionError:
+        widget.config(bg="RED")
+        mb.showerror("error", widget_value + " has a divide by zero error")
+    except OverflowError:
+        widget.config(bg="RED")
+        mb.showerror("error", widget_value + " overflows")
+    except TypeError:
+        widget.config(bg="RED")
+        mb.showerror("error", widget_value + " is an invalid expression")
 
 # Gui callbacks (command functions)
 
@@ -556,7 +562,7 @@ def open_pressed():
     print("Open button")
     open_file = filedialog.askopenfilename(title='Open File', initialdir=BASEDIRECTORY)
     print(open_file)
-    mb.askyesno('are you sure?')
+    mb.askyesno('Program state will be overwritten. Are you sure?')
     # open the coordinates file. This is just a pair of numbers on each line, x, then y, separated by a single
     # space. The readLines method creates a list of lines from this file, then we split each line into the two
     # fields (split()) and remove the end of line (strip())
@@ -583,13 +589,12 @@ def new_pressed():
 
 def save_pressed():
     print("Save button")
-    save_file = filedialog.asksaveasfile(title='Open File')
-    print(save_file)
 
 
 def save_as_pressed():
     print("Save As button")
-
+    save_file = filedialog.asksaveasfilename(title='Save As...', initialdir=r"c:\users\ed", initialfile="foobar")
+    print(save_file)
 
 #
 # when Add Point is pressed, we add a point at the end of the points list by calling
@@ -653,14 +658,38 @@ def on_closing():
         clean_up_and_exit()
 
 
-coord_list = []
+# Start up code
 
-# coord_list.append([])
+# create global working points list object
+plist = PointsList()
+
+#
+# The config file lives in the same file as the python source code, and it is
+# called config. This code checks to see if it exists. If so, it reads it into
+# a list of lines called config_file_lines. If it does not exist, a default one
+# is created, setting the starting data file path to the user's home directory
+# (in windows, %HOMEDRIVE%%HOMEPATH%) and the data file name to DEFAULTDATAFILENAME.
+#
+# Set path to config file
+config_path = BASEDIRECTORY + r"\config"
+
+if os.path.exists(config_path):
+    # config file exists. Read it.
+    config_file = open(config_path, "r")
+    config_file_lines = config_file.readlines()
+    config_file.close()
+else:
+    # config file does not exist. Create a default one.
+    user_home_path = os.path.expanduser("~")  # set path to user home
+    config_file_lines = [user_home_path + " \n", DEFAULTDATAFILENAME]  # create the config file lines
+    config_file = open(config_path, "w")
+    config_file.writelines(config_file_lines)
+    config_file.close()
 
 # gcodeFile = open(gcodeFileName, "w")
 
 # set up the GUI
-
+window = tix.Tk()
 s = ttk.Style()
 s.theme_use('xpnative')
 s.configure('window.TFrame', font=('Helvetica', 30))
@@ -668,6 +697,27 @@ s.configure('window.TFrame', font=('Helvetica', 30))
 # create and size the main window
 #
 window.title('Spot Drilling Tool')
+# Test code for PointList class and initial points for testing.
+print('initial point list')
+for point in plist.points:
+    print(point)
+print('appending point')
+plist.append_point('', 2.0)
+for point in plist.points:
+    print(point)
+print('appending point')
+plist.append_point(3.0, 4.0)
+for point in plist.points:
+    print(point)
+print('appending point')
+plist.append_point(5.0, 6.0)
+for point in plist.points:
+    print(point)
+print('appending point')
+plist.append_point(7.0, 8.0)
+for point in plist.points:
+    print(point)
+# end of class PointsList test code
 
 menu_bar = tk.Menu(window)
 filemenu = tk.Menu(menu_bar, tearoff=1)
@@ -678,10 +728,6 @@ filemenu.add_command(label="Save as...", command=save_as_pressed)
 filemenu.add_command(label="Write GCode", command=gen_gcode_pressed)
 filemenu.add_command(label="Exit", command=exit_pressed)
 menu_bar.add_cascade(label="File", menu=filemenu)
-# editmenu = tk.Menu(menu_bar, tearoff=1)
-# editmenu.add_command(label="Add Point", command=addpoint_pressed)
-# editmenu.add_command(label="Delete Point", command=deletepoint_pressed)
-# menu_bar.add_cascade(label="Edit", menu=editmenu)
 
 #
 # Create the GUI widgets
@@ -760,18 +806,12 @@ addpoint_button.grid(row=2, column=0, sticky=tk.W)
 up_button.grid(row=3, column=0, sticky=tk.W)
 down_button.grid(row=4, column=0, sticky=tk.W)
 delpoint_button.grid(row=5, column=0, sticky=tk.W)
-# create a list for each coordinate pair consisting of the value of X, the value of Y, and two tk
-# entry widgets. The widgets will be displayed in the GUI window. Each of these coordinate pair lists
-# will be appended to the coord_list, previously initialized as an empty list, resulting in a list of
-# coordinate pair lists.
-#
 
-# print(coord_list)  # debug temp
-
-
-# Start the GUI main loop
+# set up a window menu
 window.config(menu=menu_bar)
 
+# bind window manager delete window to the on_closing function
 window.protocol("WM_DELETE_WINDOW", on_closing)
 
+# Start the GUI main look
 window.mainloop()
