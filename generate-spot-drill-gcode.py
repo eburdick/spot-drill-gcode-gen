@@ -249,6 +249,17 @@
 # file. The initial path stuff is not working right. Probably something about the backslashes having
 # to be doubled. Need to figure that out. Brute force would be to turn them all into forward slashes
 # which Python should deal with fine.
+#
+# ----2022/1/4 11 PM
+#
+# Finished save, save as and open functions, starting with just writing stuff into a simple file with
+# two numbers on each line, but changed to XML format, which cleaned up a lot of stuff, and was not
+# that hard with the Python XML stuff available. Saving and restoring null tags was a problem, so I
+# convert those to a single space on save, which saves a lot of trouble. Also did things like trying
+# to read non-xml formatted files and writing to files without write permission. Made a lot of use of
+# try-except to catch these. Things to work out: relative mode if we want it. converting between inch
+# and mm on the fly? Defaults for depth and plunge rates? Come up with a name for the application?
+# Generate Gcode. I'll run across other stuff, I'm sure.
 
 
 import numexpr as ne  # for allowing numeric expressions in coordinate fields
@@ -260,6 +271,8 @@ from tkinter import messagebox as mb
 from tkinter import font
 import os
 import os.path
+import xml.etree.ElementTree as Et
+import xml
 
 # Point index constants. A point is a list of values with indices defined by these constants.
 POINTNUMBER = 0
@@ -275,19 +288,22 @@ YCOLUMN = 1
 SELECTBOXCOLUMN = 2
 
 POINTROWOFFSET = 3  # starting row of points list in the gui
-BASEDIRECTORY = os.getcwd()
+config_path = os.getcwd() + "/config"  # getcwd returns the current program working directory
+
+# set default file names. These will go into the configuration file
 DEFAULTDATAFILENAME = "generate_spot_drill_data_file"
 DEFAULTGCODEFILENAME = "gcode.nc"
-data_file_name = ""
-gcode_file_name = ""
 
+# configuration information that reflects state that is saved between sessions. This information
+# is stored in a file and updated. This dictionary is used code in this program to access this data.
+config = {'default_data_path': '', 'default_data_file': '', 'default_gcode_path': '', 'default_gcode_file': ''}
 
-
+# code for finding and exploring fonts.
 # fonts = sorted(list(font.families()))
 # print(fonts)
 
 
-
+# the PointsList class is the main working data structure for this program.
 class PointsList:
     #
     # The list of points in the application and methods for creating, deleting, etc.
@@ -297,7 +313,7 @@ class PointsList:
     row_selected = NONESELECTED  # NONESELECTED is none selected.
 
     #
-    # Constructor initializes the points list and the points count
+    # Constructor initializes the points list to empty and the points count to zero
     #
     def __init__(self):
         self.points = []
@@ -308,6 +324,7 @@ class PointsList:
     # Clear the object back to its initial state. Effectively remove all points
     #
     def clear(self):
+        self.clear_points_from_grid()
         self.points = []
         self.point_count = 0
 
@@ -317,53 +334,51 @@ class PointsList:
     #
     def append_point(self, x, y):
         self.point_count += 1
-        index = self.point_count - 1
+        index = self.point_count - 1  # The first point is point zero.
         #
         # Create the entry widgets for this point
         #
         xentry = tk.Entry(window)
+        xentry.delete(0, tk.END)
         xentry.insert(0, x)
         yentry = tk.Entry(window)
+        yentry.delete(0, tk.END)
         yentry.insert(0, y)
+        #
+        # create a booleanvariable to carry the information in the checkbutton used for selection.
         checkvar = tk.BooleanVar()
         # create the check button for this point. Its state change callback passes the index
         # of this point, which will be used in the selection code.
         # This is implemented as an inline (lambda) function that calls the callback
         # with the argument.
         check_button = tk.Checkbutton(window, variable=checkvar, command=lambda: check_select_change(index, checkvar))
-
         #
-        # append the point as a list to the end of the points list
-        #
+        # append these elements of the new point as a list to the end of the points list
         self.points.append([index,
                             xentry,
                             yentry,
                             check_button,
                             checkvar])
         #
-        # place entry widgets and check button on the grid
-        #
-        print("placing point. Row = " + str(self.point_count + POINTROWOFFSET))
-
+        # place the entry widgets and check button on the grid. POINTROWOFFSET is the number of the
+        # grid row where we want the first point displayed. We are placing this point at the end
+        # of the existing set of rows.
         self.points[index][XWIDGET].grid(row=self.point_count + POINTROWOFFSET, column=XCOLUMN, padx=4, pady=0)
         self.points[index][YWIDGET].grid(row=self.point_count + POINTROWOFFSET, column=YCOLUMN, padx=4, pady=0)
         self.points[index][CHECKBUTTON].grid(row=self.point_count + POINTROWOFFSET, column=SELECTBOXCOLUMN, sticky=tk.W)
         #
         # set up event callback for entry widget loss of focus. This is so we can check whether the text
         # in the widget is a valid number
-        #
         self.points[index][XWIDGET].bind('<FocusOut>', check_if_num)
         self.points[index][YWIDGET].bind('<FocusOut>', check_if_num)
-
         #
-        # Select the new line
-        #
+        # Select the new line so we can move it right away if desired
         self.select_row(index)
 
     # select_row mainly sets member variable row_selected to the specified row number. But it also
-    # unchecks the rest of the check buttons. This could be done by just forcing the existing check
-    # button to be unchecked, but to make sure we don't miss one, we just uncheck all buttons except
-    # the target one.
+    # unchecks the rest of the check buttons and checks the current one. This could be done by just
+    # forcing the existing check button to be unchecked, but to make sure we don't miss one, we just
+    # uncheck all buttons except the target one.
     def select_row(self, row):
         #
         # deselect all points except the one in the target row.
@@ -377,27 +392,21 @@ class PointsList:
             else:
                 pt[CHECKBUTTON].deselect()
         self.row_selected = row
-        print("new row selected " + str(self.row_selected))
 
     def deselect_row(self, row):
         #
         # The user has unchecked a checkbox. This should result in no boxes checked,
         # so we just set row_selected to NONESELECTED
-        #
-        print("old row selected " + str(self.row_selected))
-        print("row being deslected " + str(row))
         self.row_selected = NONESELECTED
-        print("new row selected " + str(self.row_selected))
 
     def delete_point(self, ptnum):
         #
-        # Check if any points are selected. If not, then return without doing anything
-        #
+        # Check if any points are selected. If not, then return without doing anything.
         if self.row_selected == NONESELECTED:
             return
         #
-        # Clear the points display from the gui
-        #
+        # Clear the points display from the gui. We will add them back after the point
+        # is deleted and the other points are adjusted to fill the gap.
         self.clear_points_from_grid()
         #
         # Since we are deleting a point, all points after it need to appear one lower in the list, thus
@@ -424,13 +433,8 @@ class PointsList:
                 self.points[idx][POINTNUMBER] = idx - 1
                 pt[CHECKBUTTON].deselect()
         #
-        # Now, with the target point gone, we re-display the remaining points.
-        #
+        # Now, with the target point gone, and the other points adjusted, we re-display the remaining points.
         self.place_points_on_grid()
-        # if line_number_offset == -1:
-        #    return 0
-        # else:
-        #    return 1
 
     def read_point(self, ptnum):
         values = (self.points[ptnum][POINTNUMBER],
@@ -447,9 +451,16 @@ class PointsList:
 
     def place_points_on_grid(self):
         for placeindex in range(0, len(self.points)):
-            self.points[placeindex][XWIDGET].grid(row=placeindex + POINTROWOFFSET, column=XCOLUMN, padx=4, pady=0)
-            self.points[placeindex][YWIDGET].grid(row=placeindex + POINTROWOFFSET, column=YCOLUMN, padx=4, pady=0)
-            self.points[placeindex][CHECKBUTTON].grid(row=placeindex + POINTROWOFFSET, column=SELECTBOXCOLUMN,
+            self.points[placeindex][XWIDGET].grid(row=placeindex + POINTROWOFFSET,
+                                                  column=XCOLUMN,
+                                                  padx=4,
+                                                  pady=0)
+            self.points[placeindex][YWIDGET].grid(row=placeindex + POINTROWOFFSET,
+                                                  column=YCOLUMN,
+                                                  padx=4,
+                                                  pady=0)
+            self.points[placeindex][CHECKBUTTON].grid(row=placeindex + POINTROWOFFSET,
+                                                      column=SELECTBOXCOLUMN,
                                                       sticky=tk.W)
         self.row_selected = NONESELECTED
 
@@ -482,7 +493,6 @@ class PointsList:
         # Move the target point x and y entry widgets backward in the points list by swapping with the previous
         # point in the list, then select the destination line. This makes it possible to repeatedly move these
         # values up the list. If this point is already the first one in the list, do nothing
-        #
         if ptnum == 0:
             return
         # remove the point lines from the grid
@@ -547,6 +557,7 @@ def check_if_num(event):
 
 # Gui callbacks (command functions)
 
+
 def check_select_change(line, val):
     print("check select changed...index: " + str(line))
     print("checkbutton state: " + str(val.get()))
@@ -558,43 +569,236 @@ def check_select_change(line, val):
 
 def open_pressed():
     # Open means read a coordinates file and make the points in that file the current points in 
-    # the application. That file also has values for depth and plunge rate. 
-    print("Open button")
-    open_file = filedialog.askopenfilename(title='Open File', initialdir=BASEDIRECTORY)
-    print(open_file)
-    mb.askyesno('Program state will be overwritten. Are you sure?')
-    # open the coordinates file. This is just a pair of numbers on each line, x, then y, separated by a single
-    # space. The readLines method creates a list of lines from this file, then we split each line into the two
-    # fields (split()) and remove the end of line (strip())
-    coords_file = open(open_file, "r")
-    coords_lines = coords_file.readlines()
+    # the application. That file also has values for depth and plunge rate.
+    if not mb.askyesno("Are you sure?", "Current data will be deleted."):
+        return
+    else:
+        open_file = filedialog.askopenfilename(title='Open File', initialdir=config['default_data_path'])
+        # update window title
+        window.title('Spot Drilling Tool: ' + open_file)
+        # update the configuration dictionary with the returned path and file name
+        path_file = os.path.split(open_file)
+        config['default_data_path'] = path_file[0]
+        config['default_data_file'] = path_file[1]
+        update_config_file()
+        # open the coordinates file. This is just a pair of expressions on each line, x, then y, separated by a comma
+        # For parsing, we just use the split(',') string method. Not much error checking here. If the file does
+        # not have the right number of tokens in each line, things will break. The assumption is that the program
+        # only reads files it creates, and that these are right. More stuff can be added, but we just bail if
+        # there is a problem.
 
-    for line in coords_lines:
-        coords = line.strip().split(' ')
-        # just print the coords value for now.
-        print(coords)
+        # The data file is in XML format. We read and parse it with the Python XML parser, then
+        # do "find" operations on the resulting data tree to get the data fields.
+        # Open and parse the file, catching any xml parse error.
+        try:
 
-    line_number = 0
-    for line in coords_lines:
-        coords = line.strip().split(' ')
-        #        coordList.append([coords[XVALUE], coords[YVALUE], Entry(window), Entry(window), StringVar(), StringVar()])
-        #       coordList[line_number][XWIDGET].insert(END, coordList[line_number][XVALUE])
-        #       coordList[line_number][YWIDGET].insert(END, coordList[line_number]
-        line_number += 1
+            xmltree = Et.parse(open_file)
+
+        except xml.etree.ElementTree.ParseError:
+            mb.showerror("Data file XML Syntax Error", "Data File XML Syntax Error")
+            return
+
+        # Get the root of the data tree
+        xmltree_root = xmltree.getroot()
+
+        # the unit selection and mode selection menu values are at the top level of children, so we can
+        # just find them in the root and set the values in the GUI.
+        unitsel = xmltree_root.find('unitsel')
+        inch_mm_select_var.set(unitsel.text)
+        modesel = xmltree_root.find('modesel')
+        abs_rel_select_var.set(modesel.text)
+
+        # The depth and plunge values are also at the top level
+        depthexpr = xmltree_root.find('depthexpr')
+        depth_entry.delete(0, tk.END)
+        depth_entry.insert(0, depthexpr.text)
+        plungeexpr = xmltree_root.find('plungeexpr')
+        plunge_entry.delete(0, tk.END)
+        plunge_entry.insert(0, plungeexpr.text)
+
+        # find the points tag, then iterate through the points and find the x and y expressions for each.
+        #
+        plist.clear()  # clear the existing points list
+        points = xmltree_root.find('points')  # find the points tag in the XML root.
+        for point in points.findall('point'):  # find each point tag in the points tag.
+            # For each point, find the x and y expressions and append them to the plist.
+            x = point.find('xexpr')
+            y = point.find('yexpr')
+            # xval = x.text
+            # if not xval:
+            #     xval = ' '
+            # print(x.text, ',', y.text)
+            # if x.text == none:
+
+            plist.append_point(point.find('xexpr').text, point.find('yexpr').text)
 
 
 def new_pressed():
-    print("New button")
+
+    # Create an XML element tree from the data we want to save. The .text and .tail white space
+    # values are for making the file easier to read. They have no impact on the actual
+    # data. A .text string is added after an opening tag. Here we use it after <spotdrill> and
+    # <points> to start and indent a new line. A .tail string is added after a closing tag. Here
+    # we use it for starting new lines after single line tags to start and indent the next line.
+    root = Et.Element("spotdrill")
+    root.text = "\n  "
+
+    unitsel = Et.SubElement(root, "unitsel")
+    unitsel.text = "Unit: Inches"
+    unitsel.tail = "\n  "
+
+    modesel = Et.SubElement(root, "modesel")
+    modesel.text = "Mode: Absolute"
+    modesel.tail = "\n  "
+
+    depthexpr = Et.SubElement(root, "depthexpr")
+    depthexpr.text = ".1 + 1"
+    depthexpr.tail = "\n  "
+
+    plungeexpr = Et.SubElement(root,"plungeexpr")
+    plungeexpr.text = "100"
+    plungeexpr.tail = "\n  "
+
+    points = Et.SubElement(root, "points")
+    points.text = "\n    "  # double indent next line
+
+    xmlpoint = Et.SubElement(points, "point")
+    x = Et.SubElement(xmlpoint, "xexpr")
+    x.text = "3.14"
+    y = Et.SubElement(xmlpoint, "yexpr")
+    y.text = ".001592"
+    xmlpoint.tail = "\n    "  # double indent next line
+
+    xmlpoint = Et.SubElement(points, "point")
+    x = Et.SubElement(xmlpoint, "xexpr")
+    x.text = "456"
+    y = Et.SubElement(xmlpoint, "yexpr")
+    y.text = "123"
+    xmlpoint.tail = "\n    "  # double indent next line
+
+    xmlpoint = Et.SubElement(points, "point")
+    x = Et.SubElement(xmlpoint, "xexpr")
+    x.text = "3.0"
+    y = Et.SubElement(xmlpoint, "yexpr")
+    y.text = ".141592"
+    xmlpoint.tail = "\n  "  # single indent next line because this is the end of the last point, going back to points.
+
+    points.tail = "\n"  # no indent because this is the end of points, going back to root
+
+    tree = Et.ElementTree(root)
+
+    tree.write("C:/Users/ed/Documents/CNC/testwrite_file_xml")
 
 
+
+
+
+
+
+
+
+
+def save_data(file_path):
+
+    # Create an XML element tree from the data we want to save. The .text and .tail white space
+    # values are for making the file easier to read. They have no impact on the actual
+    # data. A .text string is added after an opening tag. Here we use it after <spotdrill> and
+    # <points> to start and indent a new line. A .tail string is added after a closing tag. Here
+    # we use it for starting new lines after single line tags to start and indent the next line.
+    # note we allow saving of the application state even when fields have not been filled. This
+    # can result in null strings in the entry widgets, which creates null tags in the XML file,
+    # and reading these into the XML tree from a file causes problems. To fix this, we just save
+    # a blank instead of a null string, which is handled in expression evaluation
+    root = Et.Element("spotdrill")
+    root.text = "\n  "
+
+    unitsel = Et.SubElement(root, "unitsel")
+    unitsel.text = inch_mm_select_var.get()
+    unitsel.tail = "\n  "
+
+    modesel = Et.SubElement(root, "modesel")
+    modesel.text = abs_rel_select_var.get()
+    modesel.tail = "\n  "
+
+    depthexpr = Et.SubElement(root, "depthexpr")
+    if depth_entry.get() == '':
+        depthexpr.text = ' '
+    else:
+        depthexpr.text = depth_entry.get()
+    depthexpr.tail = "\n  "
+
+    plungeexpr = Et.SubElement(root, "plungeexpr")
+    if plunge_entry.get() == '':
+        plungeexpr.text = ' '
+    else:
+        plungeexpr.text = plunge_entry.get()
+    plungeexpr.tail = "\n  "
+
+    points = Et.SubElement(root, "points")
+    points.text = "\n    "  # double indent next line
+
+    # Add the points to the XML tree. Note xmlpoint, x, and y just serve as temporary variables
+    # that reference tree items on each time around the loop.
+    for i in range(0, plist.point_count):
+        point = plist.read_point(i)  # read point from point list object
+        # Create the point and x and y subelements in the XML tree. Note we do not
+        # save null x or y values to the xml file because it causes problems on read.
+        xmlpoint = Et.SubElement(points, "point")
+        x = Et.SubElement(xmlpoint, "xexpr")
+        if point[XWIDGET] == '':
+            x.text = ' '
+        else:
+            x.text = point[XWIDGET]
+        y = Et.SubElement(xmlpoint, "yexpr")
+        if point[YWIDGET] == '':
+            y.text = ' '
+        else:
+            y.text = point[YWIDGET]
+        if i == plist.point_count-1:
+            xmlpoint.tail = "\n  "  # last point...single indent next line
+        else:
+            xmlpoint.tail = "\n    "  # double indent next point line
+
+    points.tail = "\n"  # new line, but no indent because this is the end of points, going back to root
+
+    # create and save the tree. Error handler in case we try to write an illegal file
+    tree = Et.ElementTree(root)
+    try:
+        tree.write(file_path)
+
+        # update the default save path
+        path_file = os.path.split(file_path)
+        # update window title
+        window.title('Spot Drilling Tool: ' + file_path)
+        # update the configuration dictionary with the returned path and file name
+        path_file_list = os.path.split(file_path)
+        config['default_data_path'] = path_file_list[0]
+        config['default_data_file'] = path_file_list[1]
+        update_config_file()
+    except PermissionError:
+        mb.showerror("Permission Error", "No permission to write this file")
+
+
+# save button callback. Save the program data to the default data file path stored in the
+# config dictionary.
+#
 def save_pressed():
-    print("Save button")
+    save_path = config['default_data_path'] + '/' + config['default_data_file']
+    print(save_path)
+    save_data(save_path)
 
 
+#
+# save as button callback. Prompt user for a file to which to save, save the program data
+# there, and update the default path and file in the config dictionary and the config file.
+# Also, update the title of the window to reflect this change.
+#
 def save_as_pressed():
-    print("Save As button")
-    save_file = filedialog.asksaveasfilename(title='Save As...', initialdir=r"c:\users\ed", initialfile="foobar")
-    print(save_file)
+    save_file = filedialog.asksaveasfilename(
+        title='Save As...', initialdir=config['default_data_path'], initialfile=config['default_data_file'])
+    save_data(save_file)
+
+
 
 #
 # when Add Point is pressed, we add a point at the end of the points list by calling
@@ -658,34 +862,69 @@ def on_closing():
         clean_up_and_exit()
 
 
+#
+# configuration stuff...
+#
+# The configuration data is stored in a file, config, which lives with the program
+#
+def init_config():
+    global config
+    #
+    # The config file lives in the same file as the python source code, and it is
+    # called config. This code checks to see if it exists. If so, it reads it into
+    # a list of lines called config_file_lines. If it does not exist, a default one
+    # is created, setting the starting data file path to the user's home directory
+    # (in windows, %HOMEDRIVE%%HOMEPATH%) and the data file name to DEFAULTDATAFILENAME
+    # and the gcode file name to DEFAULTGCODEFILENAME.
+    if os.path.exists(config_path):
+        # config file exists. Read it.
+        config_file = open(config_path, "r")
+        config_file_lines = config_file.readlines()
+        config_file.close()
+    else:
+        # config file does not exist. Create a default one.
+        user_home_path = os.path.expanduser("~").replace("\\", "/") # set path to user home
+        print(user_home_path)
+        config_file_lines = [user_home_path + "\n",
+                             DEFAULTDATAFILENAME + "\n",
+                             user_home_path + "\n",
+                             DEFAULTGCODEFILENAME]  # create the config file lines
+        config_file = open(config_path, "w")
+        config_file.writelines(config_file_lines)
+        config_file.close()
+    # Put all config data into the global config dictionary
+    config["default_data_path"] = config_file_lines[0].rstrip("\n")
+    config["default_data_file"] = config_file_lines[1].rstrip("\n")
+    config["default_gcode_path"] = config_file_lines[2].rstrip("\n")
+    config["default_gcode_file"] = config_file_lines[3].rstrip("\n")
+    print(config)
+
+
+def update_config_file():
+    # config file is assumed to exist because init_config() was called before.
+    # update the config file with new default save path and file.
+    #     config_file = open(
+    user_home_path = os.path.expanduser("~").replace("\\", "/")  # set path to user home
+    config_file_lines = [config["default_data_path"] + "\n",
+                         config["default_data_file"] + "\n",
+                         config["default_gcode_path"] + "\n",
+                         config["default_gcode_path"]]
+    config_file = open(config_path, "w")
+    config_file.writelines(config_file_lines)
+    config_file.close()
+# end def update_config_file
+
 # Start up code
+
 
 # create global working points list object
 plist = PointsList()
 
 #
-# The config file lives in the same file as the python source code, and it is
-# called config. This code checks to see if it exists. If so, it reads it into
-# a list of lines called config_file_lines. If it does not exist, a default one
-# is created, setting the starting data file path to the user's home directory
-# (in windows, %HOMEDRIVE%%HOMEPATH%) and the data file name to DEFAULTDATAFILENAME.
-#
-# Set path to config file
-config_path = BASEDIRECTORY + r"\config"
-
-if os.path.exists(config_path):
-    # config file exists. Read it.
-    config_file = open(config_path, "r")
-    config_file_lines = config_file.readlines()
-    config_file.close()
-else:
-    # config file does not exist. Create a default one.
-    user_home_path = os.path.expanduser("~")  # set path to user home
-    config_file_lines = [user_home_path + " \n", DEFAULTDATAFILENAME]  # create the config file lines
-    config_file = open(config_path, "w")
-    config_file.writelines(config_file_lines)
-    config_file.close()
-
+init_config()
+# default_save_path = config_list[0]
+# default_save_file = config_list[1]
+print(config)
 # gcodeFile = open(gcodeFileName, "w")
 
 # set up the GUI
@@ -698,25 +937,25 @@ s.configure('window.TFrame', font=('Helvetica', 30))
 #
 window.title('Spot Drilling Tool')
 # Test code for PointList class and initial points for testing.
-print('initial point list')
-for point in plist.points:
-    print(point)
-print('appending point')
-plist.append_point('', 2.0)
-for point in plist.points:
-    print(point)
-print('appending point')
-plist.append_point(3.0, 4.0)
-for point in plist.points:
-    print(point)
-print('appending point')
-plist.append_point(5.0, 6.0)
-for point in plist.points:
-    print(point)
-print('appending point')
-plist.append_point(7.0, 8.0)
-for point in plist.points:
-    print(point)
+# print('initial point list')
+# for point in plist.points:
+#     print(point)
+# print('appending point')
+# plist.append_point('', 2.0)
+# for point in plist.points:
+#     print(point)
+# print('appending point')
+# plist.append_point(3.0, 4.0)
+# for point in plist.points:
+#     print(point)
+# print('appending point')
+# plist.append_point(5.0, 6.0)
+# for point in plist.points:
+#     print(point)
+# print('appending point')
+# plist.append_point(7.0, 8.0)
+# for point in plist.points:
+#     print(point)
 # end of class PointsList test code
 
 menu_bar = tk.Menu(window)
